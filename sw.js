@@ -1,4 +1,4 @@
-const CACHE_NAME = 'easynav-v1';
+const CACHE_NAME = 'easynav-v2';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (event) => {
@@ -17,19 +17,17 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Cache-first for the app shell, network-first fallback for anything else (e.g. font CDN).
+// Network-first: always try to fetch the latest version when online (so updates show up
+// immediately), and only fall back to the cached copy when offline (e.g. under canopy).
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)).catch(()=>{});
-          return res;
-        })
-        .catch(() => cached);
-    })
+    fetch(event.request)
+      .then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)).catch(()=>{});
+        return res;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
