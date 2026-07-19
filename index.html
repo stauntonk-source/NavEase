@@ -192,7 +192,8 @@ button:active{ transform: scale(0.97); }
 <div class="modal-bg" id="importModal">
   <div class="modal">
     <h2>Import waypoints</h2>
-    <div class="hint">One per line: <span class="mono">name, lat, lon</span> — e.g. from an Esri Field Maps export. Header row is fine, it'll be skipped.</div>
+    <div class="hint">Upload a .csv file, or paste rows below: <span class="mono">name, lat, lon</span> per line — e.g. from an Esri Field Maps export. A header row is fine, it'll be skipped automatically.</div>
+    <input type="file" id="csvFile" accept=".csv,text/csv" style="margin-bottom:10px; width:100%; color:var(--text-muted); font-size:12px;">
     <textarea id="csvInput" placeholder="Carpark North, -27.4698, 153.0251&#10;Tree 01, -27.4711, 153.0244&#10;Tree 02, -27.4715, 153.0239"></textarea>
     <div class="row">
       <button class="ghost" id="btnCancelImport">Cancel</button>
@@ -298,12 +299,18 @@ function renderWaypointStrip(){
     sorted.sort((a,b)=> distanceM(currentPos.lat,currentPos.lon,a.lat,a.lon) - distanceM(currentPos.lat,currentPos.lon,b.lat,b.lon));
   }
   strip.innerHTML = '';
+  if(sorted.length === 0){
+    const hint = document.createElement('div');
+    hint.style.cssText = 'padding:8px 4px; font-size:12px; color:var(--text-muted); display:flex; align-items:center;';
+    hint.textContent = 'No waypoints yet — tap Import CSV or + Add waypoint below.';
+    strip.appendChild(hint);
+  }
   sorted.forEach(wp=>{
     const chip = document.createElement('div');
     chip.className = 'wp-chip' + (wp.id===targetId ? ' active':'');
     const d = currentPos ? Math.round(distanceM(currentPos.lat,currentPos.lon,wp.lat,wp.lon)) + ' m' : '—';
     chip.innerHTML = `<span class="name">${escapeHtml(wp.name)}</span><span class="dist mono">${d}</span>`;
-    chip.onclick = ()=>{ targetId = wp.id; saveTarget(); renderWaypointStrip(); toast('Tracking to ' + wp.name); };
+    chip.onclick = ()=>{ targetId = wp.id; saveTarget(); renderWaypointStrip(); renderHud(); renderAR(); toast('Tracking to ' + wp.name); };
     strip.appendChild(chip);
   });
   const manage = document.createElement('div');
@@ -662,24 +669,45 @@ document.getElementById('btnClearTrail').onclick = ()=>{
 
 document.getElementById('btnImport').onclick = ()=> document.getElementById('importModal').classList.add('open');
 document.getElementById('btnCancelImport').onclick = ()=> document.getElementById('importModal').classList.remove('open');
+document.getElementById('csvFile').onchange = (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=> { document.getElementById('csvInput').value = reader.result; };
+  reader.onerror = ()=> toast('Could not read that file');
+  reader.readAsText(file);
+};
 document.getElementById('btnDoImport').onclick = ()=>{
-  const raw = document.getElementById('csvInput').value.trim();
+  const raw = document.getElementById('csvInput').value.replace(/^\uFEFF/, '').trim();
   if(!raw){ document.getElementById('importModal').classList.remove('open'); return; }
   let added = 0;
+  let firstNewId = null;
   raw.split('\n').forEach(line=>{
     const parts = line.split(',').map(s=>s.trim());
     if(parts.length < 3) return;
     const [name, latS, lonS] = parts;
     const lat = parseFloat(latS), lon = parseFloat(lonS);
     if(isNaN(lat) || isNaN(lon)) return; // skips header rows too
-    waypoints.push({ id: 'w' + Date.now() + Math.random().toString(36).slice(2,6), name, lat, lon });
+    const id = 'w' + Date.now() + Math.random().toString(36).slice(2,6);
+    waypoints.push({ id, name, lat, lon });
+    if(firstNewId === null) firstNewId = id;
     added++;
   });
   saveWaypoints();
+  if(added > 0 && !targetId && firstNewId){
+    targetId = firstNewId;
+    saveTarget();
+  }
   renderWaypointStrip();
+  renderHud();
   document.getElementById('csvInput').value = '';
+  document.getElementById('csvFile').value = '';
   document.getElementById('importModal').classList.remove('open');
-  toast(added + ' waypoint' + (added===1?'':'s') + ' imported');
+  if(added > 0){
+    toast(added + ' waypoint' + (added===1?'':'s') + ' imported — tap one above to track it');
+  } else {
+    toast('No valid rows found — check the format is name, lat, lon');
+  }
 };
 
 // ---------- Init ----------
