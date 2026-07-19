@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>EasyNav — Tracking</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root{
+  --bg: #12100E;
+  --surface: #1C1916;
+  --surface-2: #262119;
+  --line: #3A332A;
+  --hi-vis: #C8FF3D;
+  --hi-vis-dim: #8FB82B;
+  --flag: #FF3D6B;
+  --text: #F3F1EA;
+  --text-muted: #9C9384;
+  --warn: #FFB020;
+  --bad: #FF5C5C;
+}
+
+*{ box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body{ margin:0; padding:0; background: var(--bg); color: var(--text);
+  font-family: 'Space Grotesk', system-ui, sans-serif; overscroll-behavior: none; }
+body{ min-height: 100vh; display:flex; flex-direction:column; }
+.mono{ font-family: 'IBM Plex Mono', monospace; }
+
+/* --- Header --- */
+header{ padding: 14px 16px 10px; display:flex; align-items:center; justify-content:space-between;
+  border-bottom: 1px solid var(--line); }
+.brand{ display:flex; align-items:center; gap:8px; }
+.brand .dot{ width:10px; height:10px; border-radius:50%; background: var(--hi-vis);
+  box-shadow: 0 0 8px var(--hi-vis); }
+.brand h1{ font-size: 16px; margin:0; letter-spacing: 0.5px; font-weight:700; }
+.status{ display:flex; gap:10px; align-items:center; font-family:'IBM Plex Mono',monospace; font-size:11px; color: var(--text-muted); }
+.status .pill{ padding: 3px 7px; border-radius: 20px; border: 1px solid var(--line); }
+.status .pill.ok{ color: var(--hi-vis); border-color: var(--hi-vis-dim); }
+.status .pill.warn{ color: var(--warn); border-color: var(--warn); }
+.status .pill.bad{ color: var(--bad); border-color: var(--bad); }
+
+/* --- Waypoint strip --- */
+.wp-strip{ display:flex; gap:8px; overflow-x:auto; padding: 10px 14px; border-bottom:1px solid var(--line);
+  background: var(--surface); scrollbar-width:none; }
+.wp-strip::-webkit-scrollbar{ display:none; }
+.wp-chip{ flex: 0 0 auto; padding: 8px 12px; border-radius: 10px; border:1px solid var(--line);
+  background: var(--surface-2); font-size:12px; color: var(--text-muted); white-space:nowrap; cursor:pointer;
+  display:flex; flex-direction:column; gap:2px; min-width: 84px; }
+.wp-chip .name{ color: var(--text); font-weight:600; font-size:13px; }
+.wp-chip .dist{ font-family:'IBM Plex Mono',monospace; font-size:11px; }
+.wp-chip.active{ border-color: var(--hi-vis); background: rgba(200,255,61,0.08); }
+.wp-chip.active .name{ color: var(--hi-vis); }
+.wp-chip.add{ align-items:center; justify-content:center; color: var(--hi-vis); font-size:20px; min-width:44px; }
+
+/* --- HUD --- */
+.hud{ flex: 1 1 auto; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  padding: 18px 16px 6px; gap: 10px; position:relative; }
+.target-name{ font-size: 13px; color: var(--text-muted); letter-spacing: 0.5px; text-transform:uppercase; }
+.compass-wrap{ position:relative; width: min(72vw, 320px); height: min(72vw, 320px); }
+svg#compass{ width:100%; height:100%; display:block; }
+.distance{ font-size: 15vw; max-font-size: 64px; font-weight:700; line-height:1; font-family:'IBM Plex Mono',monospace; }
+.distance-unit{ font-size: 16px; color: var(--text-muted); margin-left:6px; }
+.bearing-row{ display:flex; gap:18px; color: var(--text-muted); font-size:12px; font-family:'IBM Plex Mono',monospace; }
+.bearing-row b{ color: var(--text); }
+.no-target{ text-align:center; color: var(--text-muted); font-size: 14px; padding: 30px 20px; }
+.turn-hint{ font-size: 11px; color: var(--text-muted); text-align:center; margin-top:-2px; }
+
+/* --- Tabs --- */
+.tabs{ display:flex; gap:6px; padding: 8px 14px; background: var(--surface); border-bottom:1px solid var(--line); }
+.tab{ flex:1; text-align:center; padding: 7px 0; border-radius: 8px; font-size:12px; font-weight:600;
+  color: var(--text-muted); border:1px solid var(--line); cursor:pointer; letter-spacing:0.3px; }
+.tab.active{ color: var(--bg); background: var(--hi-vis); border-color: var(--hi-vis); }
+
+/* --- AR view --- */
+.ar-view{ flex:1; position:relative; background:#000; overflow:hidden; display:none; }
+.ar-view.active{ display:block; }
+#arVideo{ width:100%; height:100%; object-fit: cover; }
+.ar-overlay{ position:absolute; inset:0; pointer-events:none; }
+.ar-flag{ position:absolute; top:50%; left:50%; transform: translate(-50%,-100%); display:flex; flex-direction:column; align-items:center;
+  transition: left 0.08s linear, top 0.08s linear; }
+.ar-flag .pole{ width:2px; height:46px; background: var(--text); }
+.ar-flag .pennant{ width:0; height:0; border-left: 22px solid var(--flag); border-top: 9px solid transparent; border-bottom: 9px solid transparent;
+  position:absolute; top:0; left:2px; }
+.ar-flag .label{ margin-top:4px; background: rgba(18,16,14,0.75); border:1px solid var(--flag); color: var(--text);
+  font-family:'IBM Plex Mono',monospace; font-size:11px; padding: 3px 7px; border-radius:6px; white-space:nowrap; }
+.ar-edge{ position:absolute; top:50%; transform: translateY(-50%); width:0; height:0;
+  border-top: 16px solid transparent; border-bottom: 16px solid transparent; display:none; }
+.ar-edge.left{ left:10px; border-right: 22px solid var(--flag); }
+.ar-edge.right{ right:10px; border-left: 22px solid var(--flag); }
+.ar-info{ position:absolute; bottom:14px; left:14px; right:14px; display:flex; justify-content:space-between;
+  background: rgba(18,16,14,0.7); border:1px solid var(--line); border-radius:10px; padding: 8px 12px;
+  font-family:'IBM Plex Mono',monospace; font-size:12px; color: var(--text); }
+.ar-empty, .ar-error{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center;
+  color: var(--text-muted); font-size:13px; padding: 20px 30px; }
+.ar-error{ color: var(--warn); }
+
+/* --- Trail map --- */
+.trail-panel{ border-top:1px solid var(--line); background: var(--surface); padding: 10px 14px 4px; }
+.trail-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+.trail-head span{ font-size:11px; color: var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; }
+svg#trail{ width:100%; height: 34vh; max-height:280px; display:block; background: var(--bg);
+  border-radius: 10px; border: 1px solid var(--line); }
+
+/* --- Footer actions --- */
+footer{ display:flex; gap:8px; padding: 10px 14px calc(14px + env(safe-area-inset-bottom)); border-top:1px solid var(--line); }
+button{ font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13px; border-radius:10px; border:1px solid var(--line);
+  background: var(--surface-2); color: var(--text); padding: 11px 10px; flex:1; cursor:pointer; }
+button.primary{ background: var(--hi-vis); color:#12100E; border-color: var(--hi-vis); }
+button.ghost{ background:transparent; }
+button:active{ transform: scale(0.97); }
+
+/* --- Modal --- */
+.modal-bg{ position:fixed; inset:0; background: rgba(0,0,0,0.6); display:none; align-items:flex-end; justify-content:center; z-index:10; }
+.modal-bg.open{ display:flex; }
+.modal{ background: var(--surface); border-top-left-radius:16px; border-top-right-radius:16px; width:100%; max-width:480px;
+  padding: 18px 18px calc(18px + env(safe-area-inset-bottom)); border-top:1px solid var(--line); }
+.modal h2{ margin:0 0 12px; font-size:16px; }
+.modal textarea, .modal input{ width:100%; background: var(--bg); border:1px solid var(--line); border-radius:8px;
+  color: var(--text); padding: 10px; font-family:'IBM Plex Mono',monospace; font-size:13px; margin-bottom:10px; }
+.modal textarea{ min-height: 110px; resize:vertical; }
+.modal .row{ display:flex; gap:8px; }
+.hint{ font-size:11px; color: var(--text-muted); margin: -4px 0 10px; line-height:1.4; }
+.wp-list-edit{ max-height: 30vh; overflow-y:auto; margin-bottom: 10px; }
+.wp-list-edit .item{ display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--line); font-size:13px; }
+.wp-list-edit .item .x{ color: var(--bad); font-family:'IBM Plex Mono',monospace; cursor:pointer; padding: 4px 8px; }
+
+.toast{ position:fixed; bottom: 90px; left:50%; transform: translateX(-50%); background: var(--surface-2);
+  border:1px solid var(--hi-vis-dim); color: var(--text); padding: 10px 16px; border-radius: 10px; font-size:13px;
+  opacity:0; pointer-events:none; transition: opacity 0.25s; z-index:20; }
+.toast.show{ opacity:1; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><div class="dot"></div><h1>EASYNAV</h1></div>
+  <div class="status">
+    <span class="pill mono" id="gpsPill">GPS —</span>
+    <span class="pill mono" id="hdgPill">HDG —</span>
+  </div>
+</header>
+
+<div class="wp-strip" id="wpStrip"></div>
+
+<div class="tabs">
+  <div class="tab active" id="tabTracking">Tracking</div>
+  <div class="tab" id="tabAR">AR Camera</div>
+</div>
+
+<div id="viewTracking">
+  <div class="hud" id="hud">
+    <div class="no-target" id="noTarget">
+      No waypoint selected yet.<br>Import or add one below, then tap it to start tracking.
+    </div>
+  </div>
+
+  <div class="trail-panel">
+    <div class="trail-head">
+      <span>Track — <span id="trailCount">0</span> pts</span>
+      <span id="trailScale" class="mono">—</span>
+    </div>
+    <svg id="trail" viewBox="0 0 300 300"></svg>
+  </div>
+</div>
+
+<div class="ar-view" id="viewAR">
+  <video id="arVideo" autoplay playsinline muted></video>
+  <div class="ar-overlay" id="arOverlay">
+    <div class="ar-flag" id="arFlag" style="display:none">
+      <div class="pole"><div class="pennant"></div></div>
+      <div class="label" id="arFlagLabel">— m</div>
+    </div>
+    <div class="ar-edge left" id="arEdgeLeft"></div>
+    <div class="ar-edge right" id="arEdgeRight"></div>
+  </div>
+  <div class="ar-info" id="arInfo" style="display:none">
+    <span>HDG <b id="arHdg" class="mono">—</b></span>
+    <span id="arTargetName">—</span>
+    <span>ACC <b id="arAcc" class="mono">—</b></span>
+  </div>
+  <div class="ar-empty" id="arEmpty">Select a waypoint on the Tracking tab first.</div>
+</div>
+
+<footer>
+  <button class="ghost" id="btnClearTrail">Clear track</button>
+  <button id="btnImport">Import CSV</button>
+  <button class="primary" id="btnAddHere">+ Add waypoint here</button>
+</footer>
+
+<!-- Import modal -->
+<div class="modal-bg" id="importModal">
+  <div class="modal">
+    <h2>Import waypoints</h2>
+    <div class="hint">One per line: <span class="mono">name, lat, lon</span> — e.g. from an Esri Field Maps export. Header row is fine, it'll be skipped.</div>
+    <textarea id="csvInput" placeholder="Carpark North, -27.4698, 153.0251&#10;Tree 01, -27.4711, 153.0244&#10;Tree 02, -27.4715, 153.0239"></textarea>
+    <div class="row">
+      <button class="ghost" id="btnCancelImport">Cancel</button>
+      <button class="primary" id="btnDoImport">Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- Manage waypoints modal -->
+<div class="modal-bg" id="manageModal">
+  <div class="modal">
+    <h2>Waypoints</h2>
+    <div class="wp-list-edit" id="wpListEdit"></div>
+    <button class="ghost" id="btnCloseManage">Done</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------- State ----------
+let waypoints = [];         // {id, name, lat, lon}
+let targetId = null;
+let trail = [];              // {lat, lon, t}
+let currentPos = null;       // {lat, lon, accuracy}
+let rawHeading = null;
+let emaSin = null, emaCos = null;
+const HEADING_SMOOTHING = 0.18;
+let watchId = null;
+const STORE_WAYPOINTS = 'easynav:waypoints';
+const STORE_TRAIL = 'easynav:trail';
+const STORE_TARGET = 'easynav:target';
+const MIN_BREADCRUMB_DIST = 5; // meters between recorded points
+
+// ---------- Storage helpers ----------
+async function loadState(){
+  try{
+    const w = await window.storage.get(STORE_WAYPOINTS);
+    if(w) waypoints = JSON.parse(w.value);
+  }catch(e){ waypoints = []; }
+  try{
+    const t = await window.storage.get(STORE_TRAIL);
+    if(t) trail = JSON.parse(t.value);
+  }catch(e){ trail = []; }
+  try{
+    const tg = await window.storage.get(STORE_TARGET);
+    if(tg) targetId = JSON.parse(tg.value);
+  }catch(e){ targetId = null; }
+  renderWaypointStrip();
+  renderTrail();
+}
+async function saveWaypoints(){
+  try{ await window.storage.set(STORE_WAYPOINTS, JSON.stringify(waypoints)); }catch(e){ console.error(e); }
+}
+async function saveTrail(){
+  try{ await window.storage.set(STORE_TRAIL, JSON.stringify(trail)); }catch(e){ console.error(e); }
+}
+async function saveTarget(){
+  try{ await window.storage.set(STORE_TARGET, JSON.stringify(targetId)); }catch(e){ console.error(e); }
+}
+
+// ---------- Geo math ----------
+const R = 6371000;
+const rad = d => d * Math.PI/180;
+const deg = r => r * 180/Math.PI;
+
+function distanceM(lat1,lon1,lat2,lon2){
+  const φ1=rad(lat1), φ2=rad(lat2), Δφ=rad(lat2-lat1), Δλ=rad(lon2-lon1);
+  const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
+  return 2*R*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function bearingDeg(lat1,lon1,lat2,lon2){
+  const φ1=rad(lat1), φ2=rad(lat2), Δλ=rad(lon2-lon1);
+  const y = Math.sin(Δλ)*Math.cos(φ2);
+  const x = Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
+  return (deg(Math.atan2(y,x)) + 360) % 360;
+}
+// local tangent-plane offset in meters (east, north) from a reference point
+function toLocalEN(lat, lon, lat0, lon0){
+  const dLat = rad(lat - lat0), dLon = rad(lon - lon0);
+  const north = dLat * R;
+  const east = dLon * R * Math.cos(rad(lat0));
+  return {east, north};
+}
+
+// ---------- Status pills ----------
+function setGpsPill(state, text){
+  const el = document.getElementById('gpsPill');
+  el.className = 'pill mono ' + state;
+  el.textContent = text;
+}
+function setHdgPill(state, text){
+  const el = document.getElementById('hdgPill');
+  el.className = 'pill mono ' + state;
+  el.textContent = text;
+}
+
+// ---------- Waypoint strip ----------
+function renderWaypointStrip(){
+  const strip = document.getElementById('wpStrip');
+  const sorted = [...waypoints];
+  if(currentPos){
+    sorted.sort((a,b)=> distanceM(currentPos.lat,currentPos.lon,a.lat,a.lon) - distanceM(currentPos.lat,currentPos.lon,b.lat,b.lon));
+  }
+  strip.innerHTML = '';
+  sorted.forEach(wp=>{
+    const chip = document.createElement('div');
+    chip.className = 'wp-chip' + (wp.id===targetId ? ' active':'');
+    const d = currentPos ? Math.round(distanceM(currentPos.lat,currentPos.lon,wp.lat,wp.lon)) + ' m' : '—';
+    chip.innerHTML = `<span class="name">${escapeHtml(wp.name)}</span><span class="dist mono">${d}</span>`;
+    chip.onclick = ()=>{ targetId = wp.id; saveTarget(); renderWaypointStrip(); toast('Tracking to ' + wp.name); };
+    strip.appendChild(chip);
+  });
+  const manage = document.createElement('div');
+  manage.className = 'wp-chip add';
+  manage.textContent = '⋯';
+  manage.onclick = openManage;
+  strip.appendChild(manage);
+}
+
+function escapeHtml(s){ return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ---------- HUD (compass arrow) ----------
+function renderHud(){
+  const hud = document.getElementById('hud');
+  const target = waypoints.find(w=>w.id===targetId);
+  if(!target){
+    hud.innerHTML = '<div class="no-target" id="noTarget">No waypoint selected yet.<br>Import or add one below, then tap it to start tracking.</div>';
+    return;
+  }
+  if(!hud.querySelector('#compass')){
+    hud.innerHTML = `
+      <div class="target-name" id="targetName"></div>
+      <div class="compass-wrap">
+        <svg id="compass" viewBox="0 0 300 300">
+          <circle cx="150" cy="150" r="140" fill="none" stroke="var(--line)" stroke-width="1.5"/>
+          <circle cx="150" cy="150" r="100" fill="none" stroke="var(--line)" stroke-width="1"/>
+          <g id="ticks"></g>
+          <path d="M150,4 L157,18 L143,18 Z" fill="var(--hi-vis-dim)"/>
+          <g id="arrowGroup">
+            <path d="M150,45 L172,150 L150,132 L128,150 Z" fill="var(--hi-vis)"/>
+            <circle cx="150" cy="150" r="7" fill="var(--flag)"/>
+          </g>
+        </svg>
+      </div>
+      <div class="turn-hint">Hold flat, turn until the arrow points to the notch ↑</div>
+      <div class="distance mono" id="distText">— <span class="distance-unit">m</span></div>
+      <div class="bearing-row mono">
+        <div>BRG <b id="brgText">—</b></div>
+        <div>HDG <b id="hdgText">—</b></div>
+        <div>ACC <b id="accText">—</b></div>
+      </div>`;
+    const ticks = hud.querySelector('#ticks');
+    for(let a=0; a<360; a+=30){
+      const x1 = 150 + 140*Math.sin(rad(a)), y1 = 150 - 140*Math.cos(rad(a));
+      const x2 = 150 + 128*Math.sin(rad(a)), y2 = 150 - 128*Math.cos(rad(a));
+      ticks.innerHTML += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--line)" stroke-width="2"/>`;
+    }
+  }
+  document.getElementById('targetName').textContent = target.name;
+
+  if(!currentPos){
+    document.getElementById('distText').innerHTML = '— <span class="distance-unit">m</span>';
+    return;
+  }
+  const dist = distanceM(currentPos.lat, currentPos.lon, target.lat, target.lon);
+  const brg = bearingDeg(currentPos.lat, currentPos.lon, target.lat, target.lon);
+  document.getElementById('distText').innerHTML = Math.round(dist) + ' <span class="distance-unit">m</span>';
+  document.getElementById('brgText').textContent = Math.round(brg) + '°';
+  document.getElementById('accText').textContent = currentPos.accuracy ? Math.round(currentPos.accuracy)+'m' : '—';
+
+  const heading = rawHeading;
+  const arrowGroup = document.getElementById('arrowGroup');
+  if(heading !== null){
+    const rel = (brg - heading + 360) % 360;
+    arrowGroup.setAttribute('transform', `rotate(${rel} 150 150)`);
+    document.getElementById('hdgText').textContent = Math.round(heading) + '°';
+  } else {
+    arrowGroup.setAttribute('transform', `rotate(${brg} 150 150)`);
+    document.getElementById('hdgText').textContent = 'n/a';
+  }
+}
+
+// ---------- Trail map (north-up, relative to current position) ----------
+function renderTrail(){
+  const svg = document.getElementById('trail');
+  document.getElementById('trailCount').textContent = trail.length;
+  const target = waypoints.find(w=>w.id===targetId);
+  const ref = currentPos || (trail.length ? trail[trail.length-1] : null);
+  if(!ref){
+    svg.innerHTML = `<text x="150" y="150" text-anchor="middle" fill="var(--text-muted)" font-size="12" font-family="IBM Plex Mono, monospace">Waiting for GPS fix…</text>`;
+    document.getElementById('trailScale').textContent = '—';
+    return;
+  }
+  const points = trail.map(p=>toLocalEN(p.lat, p.lon, ref.lat, ref.lon));
+  let targetPt = null, targetClamped = false, targetLabel = '';
+  if(target){
+    targetPt = toLocalEN(target.lat, target.lon, ref.lat, ref.lon);
+    targetLabel = Math.round(distanceM(ref.lat, ref.lon, target.lat, target.lon)) + 'm';
+  }
+  let maxExtent = 15; // meters, minimum view radius
+  points.forEach(p=>{ maxExtent = Math.max(maxExtent, Math.abs(p.east), Math.abs(p.north)); });
+  if(targetPt && !isFinite(Math.hypot(targetPt.east,targetPt.north))===false){
+    const td = Math.hypot(targetPt.east, targetPt.north);
+    if(td <= maxExtent*3) maxExtent = Math.max(maxExtent, td);
+  }
+  maxExtent *= 1.25;
+  const scale = 130 / maxExtent; // px per meter, view radius ~130px
+
+  function toSvg(east, north){ return { x: 150 + east*scale, y: 150 - north*scale }; }
+
+  let svgHtml = '';
+  // range rings
+  [0.33,0.66,1].forEach(f=>{
+    svgHtml += `<circle cx="150" cy="150" r="${130*f}" fill="none" stroke="var(--line)" stroke-width="1" stroke-dasharray="3,4"/>`;
+  });
+  // breadcrumb path
+  if(points.length > 1){
+    const d = points.map((p,i)=>{ const s = toSvg(p.east,p.north); return (i===0?'M':'L') + s.x.toFixed(1) + ',' + s.y.toFixed(1); }).join(' ');
+    svgHtml += `<path d="${d}" fill="none" stroke="var(--hi-vis-dim)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
+  }
+  points.forEach((p,i)=>{
+    const s = toSvg(p.east,p.north);
+    svgHtml += `<circle cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="2" fill="var(--hi-vis-dim)"/>`;
+  });
+  // target waypoint (clamp to edge if far)
+  if(targetPt){
+    const rawD = Math.hypot(targetPt.east, targetPt.north) || 0.0001;
+    let sx = 150 + (targetPt.east/rawD) * Math.min(rawD*scale, 130);
+    let sy = 150 - (targetPt.north/rawD) * Math.min(rawD*scale, 130);
+    svgHtml += `<line x1="150" y1="150" x2="${sx.toFixed(1)}" y2="${sy.toFixed(1)}" stroke="var(--flag)" stroke-width="1" stroke-dasharray="4,4" opacity="0.6"/>`;
+    svgHtml += `<circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="6" fill="var(--flag)"/>`;
+    svgHtml += `<text x="${sx.toFixed(1)}" y="${(sy-12).toFixed(1)}" text-anchor="middle" fill="var(--flag)" font-size="11" font-family="IBM Plex Mono, monospace">${targetLabel}</text>`;
+  }
+  // current position marker (center), rotated with heading if available
+  const rot = rawHeading !== null ? rawHeading : 0;
+  svgHtml += `<g transform="translate(150,150) rotate(${rot})"><path d="M0,-11 L8,10 L0,4 L-8,10 Z" fill="var(--text)"/></g>`;
+
+  svg.innerHTML = svgHtml;
+  document.getElementById('trailScale').textContent = 'r≈' + Math.round(maxExtent) + 'm';
+}
+
+// ---------- AR camera view ----------
+const CAMERA_FOV_DEG = 62; // approx horizontal FOV of a typical rear camera; flag position is an estimate, not measured per-device
+let arStream = null;
+let arActive = false;
+
+async function startAR(){
+  const video = document.getElementById('arVideo');
+  const empty = document.getElementById('arEmpty');
+  if(!targetId){
+    empty.style.display = 'flex';
+    empty.textContent = 'Select a waypoint on the Tracking tab first.';
+    document.getElementById('arInfo').style.display = 'none';
+    return;
+  }
+  empty.style.display = 'none';
+  document.getElementById('arInfo').style.display = 'flex';
+  if(arStream) return; // already running
+  try{
+    arStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+    video.srcObject = arStream;
+  }catch(err){
+    empty.style.display = 'flex';
+    empty.className = 'ar-error';
+    empty.textContent = 'Camera unavailable: ' + (err.message || err.name || 'permission denied');
+  }
+}
+function stopAR(){
+  if(arStream){
+    arStream.getTracks().forEach(t=>t.stop());
+    arStream = null;
+  }
+}
+
+function renderAR(){
+  if(!arActive) return;
+  const target = waypoints.find(w=>w.id===targetId);
+  const flag = document.getElementById('arFlag');
+  const edgeL = document.getElementById('arEdgeLeft');
+  const edgeR = document.getElementById('arEdgeRight');
+  if(!target || !currentPos || rawHeading === null){
+    flag.style.display = 'none';
+    edgeL.style.display = 'none';
+    edgeR.style.display = 'none';
+    return;
+  }
+  const dist = distanceM(currentPos.lat, currentPos.lon, target.lat, target.lon);
+  const brg = bearingDeg(currentPos.lat, currentPos.lon, target.lat, target.lon);
+  let rel = ((brg - rawHeading + 540) % 360) - 180; // -180..180, 0 = straight ahead
+  document.getElementById('arHdg').textContent = Math.round(rawHeading) + '°';
+  document.getElementById('arTargetName').textContent = target.name + ' · ' + Math.round(dist) + 'm';
+  document.getElementById('arAcc').textContent = currentPos.accuracy ? Math.round(currentPos.accuracy) + 'm' : '—';
+
+  const half = CAMERA_FOV_DEG / 2;
+  if(Math.abs(rel) <= half){
+    flag.style.display = 'flex';
+    edgeL.style.display = 'none';
+    edgeR.style.display = 'none';
+    const xPct = 50 + (rel / half) * 48; // keep just inside the edges
+    // rough pitch nudge: tilting the phone up/down shifts where the flag should sit vertically.
+    // beta ~90 = phone upright/vertical; deviation moves the flag, clamped to a modest range.
+    const pitchDelta = rawPitch !== null ? Math.max(-35, Math.min(35, rawPitch - 90)) : 0;
+    const yPct = 62 - (pitchDelta / 35) * 22;
+    flag.style.left = xPct + '%';
+    flag.style.top = Math.max(20, Math.min(85, yPct)) + '%';
+    document.getElementById('arFlagLabel').textContent = Math.round(dist) + ' m';
+  } else {
+    flag.style.display = 'none';
+    if(rel < 0){ edgeL.style.display = 'block'; edgeR.style.display = 'none'; }
+    else { edgeR.style.display = 'block'; edgeL.style.display = 'none'; }
+  }
+}
+
+function switchTab(tab){
+  const trackingTab = document.getElementById('tabTracking');
+  const arTab = document.getElementById('tabAR');
+  const viewTracking = document.getElementById('viewTracking');
+  const viewAR = document.getElementById('viewAR');
+  const footer = document.querySelector('footer');
+  if(tab === 'tracking'){
+    arActive = false;
+    stopAR();
+    trackingTab.classList.add('active'); arTab.classList.remove('active');
+    viewTracking.style.display = ''; viewAR.classList.remove('active');
+    footer.style.display = 'flex';
+  } else {
+    arActive = true;
+    trackingTab.classList.remove('active'); arTab.classList.add('active');
+    viewTracking.style.display = 'none'; viewAR.classList.add('active');
+    footer.style.display = 'none';
+    startAR();
+    renderAR();
+  }
+}
+document.getElementById('tabTracking').onclick = ()=> switchTab('tracking');
+document.getElementById('tabAR').onclick = ()=> switchTab('ar');
+
+// ---------- Toast ----------
+let toastTimer = null;
+function toast(msg){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=> el.classList.remove('show'), 2000);
+}
+
+// ---------- Geolocation ----------
+function startGeo(){
+  if(!('geolocation' in navigator)){
+    setGpsPill('bad','GPS unsupported');
+    return;
+  }
+  watchId = navigator.geolocation.watchPosition(pos=>{
+    const {latitude, longitude, accuracy} = pos.coords;
+    currentPos = {lat: latitude, lon: longitude, accuracy};
+    if(accuracy > 30) setGpsPill('warn', 'GPS ±' + Math.round(accuracy) + 'm');
+    else setGpsPill('ok', 'GPS ±' + Math.round(accuracy) + 'm');
+
+    const last = trail[trail.length-1];
+    if(!last || distanceM(last.lat,last.lon,latitude,longitude) >= MIN_BREADCRUMB_DIST){
+      trail.push({lat: latitude, lon: longitude, t: Date.now()});
+      if(trail.length > 3000) trail.shift();
+      saveTrail();
+    }
+    renderWaypointStrip();
+    renderHud();
+    renderTrail();
+  }, err=>{
+    setGpsPill('bad', err.code===1 ? 'GPS denied' : 'GPS error');
+  }, { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 });
+}
+
+// ---------- Compass / device orientation ----------
+function applyHeading(h){
+  if(emaSin===null){ emaSin = Math.sin(rad(h)); emaCos = Math.cos(rad(h)); }
+  else{
+    emaSin = emaSin*(1-HEADING_SMOOTHING) + Math.sin(rad(h))*HEADING_SMOOTHING;
+    emaCos = emaCos*(1-HEADING_SMOOTHING) + Math.cos(rad(h))*HEADING_SMOOTHING;
+  }
+  rawHeading = (deg(Math.atan2(emaSin, emaCos)) + 360) % 360;
+  setHdgPill('ok', 'HDG ' + Math.round(rawHeading) + '°');
+  renderHud();
+  renderTrail();
+  renderAR();
+}
+let rawPitch = null; // beta, used to nudge the AR flag up/down
+
+// Tilt-compensated compass heading (valid flat, tilted, or held upright for the camera view).
+// Standard device-orientation -> world-frame projection, not just raw alpha.
+function tiltCompensatedHeading(alpha, beta, gamma){
+  const x = rad(beta || 0), y = rad(gamma || 0), z = rad(alpha || 0);
+  const cX = Math.cos(x), cY = Math.cos(y), cZ = Math.cos(z);
+  const sX = Math.sin(x), sY = Math.sin(y), sZ = Math.sin(z);
+  const Vx = -cZ*sY - sZ*sX*cY;
+  const Vy = -sZ*sY + cZ*sX*cY;
+  let heading = deg(Math.atan2(Vx, Vy));
+  if(heading < 0) heading += 360;
+  return heading;
+}
+function handleOrientation(event){
+  let heading = null;
+  if(typeof event.webkitCompassHeading === 'number'){
+    heading = event.webkitCompassHeading;
+  } else if(event.alpha !== null){
+    const screenAngle = (screen.orientation && typeof screen.orientation.angle === 'number') ? screen.orientation.angle : (window.orientation || 0);
+    heading = (tiltCompensatedHeading(event.alpha, event.beta, event.gamma) + screenAngle) % 360;
+    if(heading < 0) heading += 360;
+  }
+  if(event.beta !== null && event.beta !== undefined) rawPitch = event.beta;
+  if(heading !== null) applyHeading(heading);
+}
+function startCompass(){
+  const attach = ()=>{
+    if('ondeviceorientationabsolute' in window){
+      window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+    } else {
+      window.addEventListener('deviceorientation', handleOrientation, true);
+    }
+  };
+  if(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
+    DeviceOrientationEvent.requestPermission().then(state=>{
+      if(state === 'granted') attach();
+      else setHdgPill('bad','HDG denied');
+    }).catch(()=> setHdgPill('bad','HDG error'));
+  } else {
+    attach();
+  }
+}
+
+// ---------- Waypoint management ----------
+function openManage(){
+  const list = document.getElementById('wpListEdit');
+  list.innerHTML = waypoints.length ? '' : '<div class="hint">No waypoints yet.</div>';
+  waypoints.forEach(wp=>{
+    const row = document.createElement('div');
+    row.className = 'item';
+    row.innerHTML = `<span>${escapeHtml(wp.name)} <span class="mono" style="color:var(--text-muted)">(${wp.lat.toFixed(5)}, ${wp.lon.toFixed(5)})</span></span><span class="x">✕</span>`;
+    row.querySelector('.x').onclick = ()=>{
+      waypoints = waypoints.filter(w=>w.id!==wp.id);
+      if(targetId===wp.id) targetId = null;
+      saveWaypoints(); saveTarget(); renderWaypointStrip(); renderHud(); renderTrail(); openManage();
+    };
+    list.appendChild(row);
+  });
+  document.getElementById('manageModal').classList.add('open');
+}
+document.getElementById('btnCloseManage').onclick = ()=> document.getElementById('manageModal').classList.remove('open');
+
+document.getElementById('btnAddHere').onclick = ()=>{
+  if(!currentPos){ toast('No GPS fix yet'); return; }
+  const name = prompt('Waypoint name', 'WP ' + (waypoints.length+1));
+  if(!name) return;
+  waypoints.push({ id: 'w' + Date.now(), name, lat: currentPos.lat, lon: currentPos.lon });
+  saveWaypoints();
+  renderWaypointStrip();
+  toast('Added ' + name);
+};
+
+document.getElementById('btnClearTrail').onclick = ()=>{
+  if(!confirm('Clear the recorded track?')) return;
+  trail = [];
+  saveTrail();
+  renderTrail();
+};
+
+document.getElementById('btnImport').onclick = ()=> document.getElementById('importModal').classList.add('open');
+document.getElementById('btnCancelImport').onclick = ()=> document.getElementById('importModal').classList.remove('open');
+document.getElementById('btnDoImport').onclick = ()=>{
+  const raw = document.getElementById('csvInput').value.trim();
+  if(!raw){ document.getElementById('importModal').classList.remove('open'); return; }
+  let added = 0;
+  raw.split('\n').forEach(line=>{
+    const parts = line.split(',').map(s=>s.trim());
+    if(parts.length < 3) return;
+    const [name, latS, lonS] = parts;
+    const lat = parseFloat(latS), lon = parseFloat(lonS);
+    if(isNaN(lat) || isNaN(lon)) return; // skips header rows too
+    waypoints.push({ id: 'w' + Date.now() + Math.random().toString(36).slice(2,6), name, lat, lon });
+    added++;
+  });
+  saveWaypoints();
+  renderWaypointStrip();
+  document.getElementById('csvInput').value = '';
+  document.getElementById('importModal').classList.remove('open');
+  toast(added + ' waypoint' + (added===1?'':'s') + ' imported');
+};
+
+// ---------- Init ----------
+(async function init(){
+  await loadState();
+  renderHud();
+  startGeo();
+  startCompass();
+})();
+</script>
+</body>
+</html>
