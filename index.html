@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>EasyNav — Tracking</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#12100E">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="EasyNav">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
@@ -231,28 +239,32 @@ const MIN_BREADCRUMB_DIST = 5; // meters between recorded points
 // ---------- Storage helpers ----------
 async function loadState(){
   try{
-    const w = await window.storage.get(STORE_WAYPOINTS);
-    if(w) waypoints = JSON.parse(w.value);
+    const raw = localStorage.getItem(STORE_WAYPOINTS);
+    if(raw) waypoints = JSON.parse(raw);
   }catch(e){ waypoints = []; }
   try{
-    const t = await window.storage.get(STORE_TRAIL);
-    if(t) trail = JSON.parse(t.value);
+    const raw = localStorage.getItem(STORE_TRAIL);
+    if(raw) trail = JSON.parse(raw);
   }catch(e){ trail = []; }
   try{
-    const tg = await window.storage.get(STORE_TARGET);
-    if(tg) targetId = JSON.parse(tg.value);
+    const raw = localStorage.getItem(STORE_TARGET);
+    if(raw) targetId = JSON.parse(raw);
   }catch(e){ targetId = null; }
+  // if the stored target doesn't match any loaded waypoint (stale from an earlier test), clear it
+  if(targetId && !waypoints.some(w => w.id === targetId)){
+    targetId = null;
+  }
   renderWaypointStrip();
   renderTrail();
 }
 async function saveWaypoints(){
-  try{ await window.storage.set(STORE_WAYPOINTS, JSON.stringify(waypoints)); }catch(e){ console.error(e); }
+  try{ localStorage.setItem(STORE_WAYPOINTS, JSON.stringify(waypoints)); }catch(e){ console.error(e); }
 }
 async function saveTrail(){
-  try{ await window.storage.set(STORE_TRAIL, JSON.stringify(trail)); }catch(e){ console.error(e); }
+  try{ localStorage.setItem(STORE_TRAIL, JSON.stringify(trail)); }catch(e){ console.error(e); }
 }
 async function saveTarget(){
-  try{ await window.storage.set(STORE_TARGET, JSON.stringify(targetId)); }catch(e){ console.error(e); }
+  try{ localStorage.setItem(STORE_TARGET, JSON.stringify(targetId)); }catch(e){ console.error(e); }
 }
 
 // ---------- Geo math ----------
@@ -669,15 +681,9 @@ document.getElementById('btnClearTrail').onclick = ()=>{
 
 document.getElementById('btnImport').onclick = ()=> document.getElementById('importModal').classList.add('open');
 document.getElementById('btnCancelImport').onclick = ()=> document.getElementById('importModal').classList.remove('open');
-document.getElementById('csvFile').onchange = (e)=>{
-  const file = e.target.files[0];
-  if(!file) return;
-  const reader = new FileReader();
-  reader.onload = ()=> { document.getElementById('csvInput').value = reader.result; };
-  reader.onerror = ()=> toast('Could not read that file');
-  reader.readAsText(file);
-};
-document.getElementById('btnDoImport').onclick = ()=>{
+
+function doImport(){
+ try{
   const raw = document.getElementById('csvInput').value.replace(/^\uFEFF/, '').trim();
   if(!raw){ document.getElementById('importModal').classList.remove('open'); return; }
   let added = 0;
@@ -694,7 +700,9 @@ document.getElementById('btnDoImport').onclick = ()=>{
     added++;
   });
   saveWaypoints();
-  if(added > 0 && !targetId && firstNewId){
+  // select the first newly-imported waypoint unless a valid target is already active
+  const hasValidTarget = targetId && waypoints.some(w => w.id === targetId);
+  if(added > 0 && !hasValidTarget && firstNewId){
     targetId = firstNewId;
     saveTarget();
   }
@@ -708,9 +716,36 @@ document.getElementById('btnDoImport').onclick = ()=>{
   } else {
     toast('No valid rows found — check the format is name, lat, lon');
   }
+ }catch(err){
+   alert('Import error: ' + (err && err.message ? err.message : err));
+ }
+}
+
+document.getElementById('csvFile').onchange = (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=> {
+    document.getElementById('csvInput').value = reader.result;
+    doImport(); // import immediately, no second tap needed
+  };
+  reader.onerror = ()=> toast('Could not read that file');
+  reader.readAsText(file);
 };
+document.getElementById('btnDoImport').onclick = doImport;
+
+// ---------- Global error visibility (no devtools access in the field) ----------
+window.addEventListener('error', (e)=>{
+  console.error(e.error || e.message);
+  alert('EasyNav error: ' + (e.message || 'unknown error') + (e.filename ? ('\n' + e.filename + ':' + e.lineno) : ''));
+});
 
 // ---------- Init ----------
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  });
+}
 (async function init(){
   await loadState();
   renderHud();
