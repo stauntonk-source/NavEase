@@ -96,12 +96,18 @@ svg#compass{ width:100%; height:100%; display:block; }
   border-top: 16px solid transparent; border-bottom: 16px solid transparent; display:none; }
 .ar-edge.left{ left:10px; border-right: 22px solid var(--flag); }
 .ar-edge.right{ right:10px; border-left: 22px solid var(--flag); }
-.ar-info{ position:absolute; bottom:14px; left:14px; right:14px; display:flex; justify-content:space-between;
-  background: rgba(18,16,14,0.7); border:1px solid var(--line); border-radius:10px; padding: 8px 12px;
-  font-family:'IBM Plex Mono',monospace; font-size:12px; color: var(--text); }
+.ar-info{ position:absolute; bottom:0; left:0; right:0; display:flex; align-items:center; gap:10px; justify-content:space-between;
+  background: rgba(18,16,14,0.85); border-top:1px solid var(--line); padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  font-family:'IBM Plex Mono',monospace; font-size:12px; color: var(--text); flex-wrap:wrap; }
+.ar-back{ flex:0 0 auto; background: var(--hi-vis); color:#12100E; border:none; border-radius:8px;
+  padding: 7px 10px; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:12px; cursor:pointer; }
 .ar-empty, .ar-error{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center;
   color: var(--text-muted); font-size:13px; padding: 20px 30px; }
 .ar-error{ color: var(--warn); }
+/* While in AR mode, hide the top chrome entirely so the camera view has the full screen
+   and all information lives in the bottom bar instead. */
+body.ar-mode header, body.ar-mode .wp-strip, body.ar-mode .tabs{ display:none; }
+body.ar-mode .ar-view{ flex:1 1 auto; }
 
 /* --- Trail map --- */
 .trail-panel{ border-top:1px solid var(--line); background: var(--surface); padding: 10px 14px 4px; }
@@ -137,6 +143,23 @@ button:active{ transform: scale(0.97); }
   border:1px solid var(--hi-vis-dim); color: var(--text); padding: 10px 16px; border-radius: 10px; font-size:13px;
   opacity:0; pointer-events:none; transition: opacity 0.25s; z-index:20; }
 .toast.show{ opacity:1; }
+/* --- Landscape: avoid stacking everything vertically (which forced scrolling) --- */
+@media (orientation: landscape){
+  body{ height:100vh; overflow:hidden; }
+  header{ order:4; padding:6px 14px; }
+  .wp-strip{ order:5; padding:6px 12px; }
+  .tabs{ order:0; padding:6px 12px; }
+  #viewTracking{ order:1; flex:1 1 auto; display:flex; flex-direction:row; min-height:0; overflow:hidden; }
+  .hud{ flex:1 1 50%; min-width:0; padding: 6px 10px; gap:6px; justify-content:center; }
+  .compass-wrap{ width: min(32vh, 34vw); height: min(32vh, 34vw); }
+  .distance{ font-size: 9vh; }
+  .turn-hint{ font-size:10px; }
+  .trail-panel{ order:2; flex:1 1 50%; min-width:0; border-top:none; border-left:1px solid var(--line);
+    display:flex; flex-direction:column; padding: 8px 10px 4px; min-height:0; }
+  svg#trail{ flex:1 1 auto; height:auto; max-height:none; min-height:0; }
+  footer{ order:6; padding:6px 12px calc(6px + env(safe-area-inset-bottom)); }
+  footer button{ padding: 8px 6px; font-size:12px; }
+}
 </style>
 </head>
 <body>
@@ -183,6 +206,7 @@ button:active{ transform: scale(0.97); }
     <div class="ar-edge right" id="arEdgeRight"></div>
   </div>
   <div class="ar-info" id="arInfo" style="display:none">
+    <button class="ar-back" id="arBack">← Tracking</button>
     <span>HDG <b id="arHdg" class="mono">—</b></span>
     <span id="arTargetName">—</span>
     <span>ACC <b id="arAcc" class="mono">—</b></span>
@@ -226,6 +250,7 @@ button:active{ transform: scale(0.97); }
 let waypoints = [];         // {id, name, lat, lon}
 let targetId = null;
 let trail = [];              // {lat, lon, t}
+let visitedIds = [];         // ids of waypoints we've come within range of
 let currentPos = null;       // {lat, lon, accuracy}
 let rawHeading = null;
 let emaSin = null, emaCos = null;
@@ -234,7 +259,9 @@ let watchId = null;
 const STORE_WAYPOINTS = 'easynav:waypoints';
 const STORE_TRAIL = 'easynav:trail';
 const STORE_TARGET = 'easynav:target';
+const STORE_VISITED = 'easynav:visited';
 const MIN_BREADCRUMB_DIST = 5; // meters between recorded points
+const VISIT_RADIUS = 4; // meters — waypoint marked "reached" once you're this close
 
 // ---------- Storage helpers ----------
 async function loadState(){
@@ -250,6 +277,10 @@ async function loadState(){
     const raw = localStorage.getItem(STORE_TARGET);
     if(raw) targetId = JSON.parse(raw);
   }catch(e){ targetId = null; }
+  try{
+    const raw = localStorage.getItem(STORE_VISITED);
+    if(raw) visitedIds = JSON.parse(raw);
+  }catch(e){ visitedIds = []; }
   // if the stored target doesn't match any loaded waypoint (stale from an earlier test), clear it
   if(targetId && !waypoints.some(w => w.id === targetId)){
     targetId = null;
@@ -265,6 +296,9 @@ async function saveTrail(){
 }
 async function saveTarget(){
   try{ localStorage.setItem(STORE_TARGET, JSON.stringify(targetId)); }catch(e){ console.error(e); }
+}
+async function saveVisited(){
+  try{ localStorage.setItem(STORE_VISITED, JSON.stringify(visitedIds)); }catch(e){ console.error(e); }
 }
 
 // ---------- Geo math ----------
@@ -410,10 +444,13 @@ function renderTrail(){
   let targetPt = null, targetClamped = false, targetLabel = '';
   if(target){
     targetPt = toLocalEN(target.lat, target.lon, ref.lat, ref.lon);
-    targetLabel = Math.round(distanceM(ref.lat, ref.lon, target.lat, target.lon)) + 'm';
+    targetLabel = target.name + ' · ' + Math.round(distanceM(ref.lat, ref.lon, target.lat, target.lon)) + 'm';
   }
+  const visitedWps = waypoints.filter(w => visitedIds.includes(w.id) && w.id !== targetId);
+  const visitedPts = visitedWps.map(w => ({ wp: w, pt: toLocalEN(w.lat, w.lon, ref.lat, ref.lon) }));
   let maxExtent = 15; // meters, minimum view radius
   points.forEach(p=>{ maxExtent = Math.max(maxExtent, Math.abs(p.east), Math.abs(p.north)); });
+  visitedPts.forEach(v=>{ maxExtent = Math.max(maxExtent, Math.abs(v.pt.east), Math.abs(v.pt.north)); });
   if(targetPt && !isFinite(Math.hypot(targetPt.east,targetPt.north))===false){
     const td = Math.hypot(targetPt.east, targetPt.north);
     if(td <= maxExtent*3) maxExtent = Math.max(maxExtent, td);
@@ -437,6 +474,14 @@ function renderTrail(){
     const s = toSvg(p.east,p.north);
     svgHtml += `<circle cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="2" fill="var(--hi-vis-dim)"/>`;
   });
+  // visited waypoints (already reached) — blue, distinct from the green trail and the red/pink active target
+  visitedPts.forEach(v=>{
+    const rawD = Math.hypot(v.pt.east, v.pt.north) || 0.0001;
+    const sx = 150 + (v.pt.east/rawD) * Math.min(rawD*scale, 130);
+    const sy = 150 - (v.pt.north/rawD) * Math.min(rawD*scale, 130);
+    svgHtml += `<circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="5" fill="#3D9BFF" stroke="var(--bg)" stroke-width="1.5"/>`;
+    svgHtml += `<text x="${sx.toFixed(1)}" y="${(sy-10).toFixed(1)}" text-anchor="middle" fill="#3D9BFF" font-size="10" font-family="IBM Plex Mono, monospace">${escapeHtml(v.wp.name)}</text>`;
+  });
   // target waypoint (clamp to edge if far)
   if(targetPt){
     const rawD = Math.hypot(targetPt.east, targetPt.north) || 0.0001;
@@ -444,7 +489,7 @@ function renderTrail(){
     let sy = 150 - (targetPt.north/rawD) * Math.min(rawD*scale, 130);
     svgHtml += `<line x1="150" y1="150" x2="${sx.toFixed(1)}" y2="${sy.toFixed(1)}" stroke="var(--flag)" stroke-width="1" stroke-dasharray="4,4" opacity="0.6"/>`;
     svgHtml += `<circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="6" fill="var(--flag)"/>`;
-    svgHtml += `<text x="${sx.toFixed(1)}" y="${(sy-12).toFixed(1)}" text-anchor="middle" fill="var(--flag)" font-size="11" font-family="IBM Plex Mono, monospace">${targetLabel}</text>`;
+    svgHtml += `<text x="${sx.toFixed(1)}" y="${(sy-12).toFixed(1)}" text-anchor="middle" fill="var(--flag)" font-size="11" font-family="IBM Plex Mono, monospace">${escapeHtml(targetLabel)}</text>`;
   }
   // current position marker (center), rotated with heading if available
   const rot = rawHeading !== null ? rawHeading : 0;
@@ -535,11 +580,13 @@ function switchTab(tab){
   if(tab === 'tracking'){
     arActive = false;
     stopAR();
+    document.body.classList.remove('ar-mode');
     trackingTab.classList.add('active'); arTab.classList.remove('active');
     viewTracking.style.display = ''; viewAR.classList.remove('active');
     footer.style.display = 'flex';
   } else {
     arActive = true;
+    document.body.classList.add('ar-mode');
     trackingTab.classList.remove('active'); arTab.classList.add('active');
     viewTracking.style.display = 'none'; viewAR.classList.add('active');
     footer.style.display = 'none';
@@ -549,6 +596,7 @@ function switchTab(tab){
 }
 document.getElementById('tabTracking').onclick = ()=> switchTab('tracking');
 document.getElementById('tabAR').onclick = ()=> switchTab('ar');
+document.getElementById('arBack').onclick = ()=> switchTab('tracking');
 
 // ---------- Toast ----------
 let toastTimer = null;
@@ -561,6 +609,19 @@ function toast(msg){
 }
 
 // ---------- Geolocation ----------
+function checkVisited(lat, lon){
+  let changed = false;
+  waypoints.forEach(wp=>{
+    if(visitedIds.includes(wp.id)) return;
+    if(distanceM(lat, lon, wp.lat, wp.lon) <= VISIT_RADIUS){
+      visitedIds.push(wp.id);
+      changed = true;
+      toast('Reached ' + wp.name);
+    }
+  });
+  if(changed) saveVisited();
+}
+
 function startGeo(){
   if(!('geolocation' in navigator)){
     setGpsPill('bad','GPS unsupported');
@@ -578,6 +639,7 @@ function startGeo(){
       if(trail.length > 3000) trail.shift();
       saveTrail();
     }
+    checkVisited(latitude, longitude);
     renderWaypointStrip();
     renderHud();
     renderTrail();
@@ -618,9 +680,11 @@ function handleOrientation(event){
   if(typeof event.webkitCompassHeading === 'number'){
     heading = event.webkitCompassHeading;
   } else if(event.alpha !== null){
-    const screenAngle = (screen.orientation && typeof screen.orientation.angle === 'number') ? screen.orientation.angle : (window.orientation || 0);
-    heading = (tiltCompensatedHeading(event.alpha, event.beta, event.gamma) + screenAngle) % 360;
-    if(heading < 0) heading += 360;
+    // tiltCompensatedHeading already reflects the true physical direction the device
+    // (and camera) is facing, independent of portrait/landscape screen rotation —
+    // adding a screen-angle correction on top double-corrects and was causing a
+    // ~90° error whenever the phone was held in landscape.
+    heading = tiltCompensatedHeading(event.alpha, event.beta, event.gamma);
   }
   if(event.beta !== null && event.beta !== undefined) rawPitch = event.beta;
   if(heading !== null) applyHeading(heading);
