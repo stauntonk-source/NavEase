@@ -1,6 +1,6 @@
 {
-  "name": "EasyNav",
-  "short_name": "EasyNav",
+  "name": "NavEase",
+  "short_name": "NavEase",
   "description": "AR-enabled field navigation — bearing tracking and waypoint marking for bush terrain.",
   "start_url": "./index.html",
   "scope": "./",

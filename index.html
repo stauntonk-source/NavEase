@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>EasyNav — Tracking</title>
+<title>NavEase — Tracking</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#12100E">
 <link rel="icon" href="icon-192.png">
@@ -11,7 +11,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="EasyNav">
+<meta name="apple-mobile-web-app-title" content="NavEase">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
@@ -165,7 +165,7 @@ button:active{ transform: scale(0.97); }
 <body>
 
 <header>
-  <div class="brand"><div class="dot"></div><h1>EASYNAV</h1></div>
+  <div class="brand"><div class="dot"></div><h1>NAVEASE</h1></div>
   <div class="status">
     <span class="pill mono" id="gpsPill">GPS —</span>
     <span class="pill mono" id="hdgPill">HDG —</span>
@@ -256,10 +256,10 @@ let rawHeading = null;
 let emaSin = null, emaCos = null;
 const HEADING_SMOOTHING = 0.18;
 let watchId = null;
-const STORE_WAYPOINTS = 'easynav:waypoints';
-const STORE_TRAIL = 'easynav:trail';
-const STORE_TARGET = 'easynav:target';
-const STORE_VISITED = 'easynav:visited';
+const STORE_WAYPOINTS = 'navease:waypoints';
+const STORE_TRAIL = 'navease:trail';
+const STORE_TARGET = 'navease:target';
+const STORE_VISITED = 'navease:visited';
 const MIN_BREADCRUMB_DIST = 5; // meters between recorded points
 const VISIT_RADIUS = 4; // meters — waypoint marked "reached" once you're this close
 
@@ -801,7 +801,7 @@ document.getElementById('btnDoImport').onclick = doImport;
 // ---------- Global error visibility (no devtools access in the field) ----------
 window.addEventListener('error', (e)=>{
   console.error(e.error || e.message);
-  alert('EasyNav error: ' + (e.message || 'unknown error') + (e.filename ? ('\n' + e.filename + ':' + e.lineno) : ''));
+  alert('NavEase error: ' + (e.message || 'unknown error') + (e.filename ? ('\n' + e.filename + ':' + e.lineno) : ''));
 });
 
 // ---------- Init ----------
