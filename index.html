@@ -87,9 +87,10 @@ svg#compass{ width:100%; height:100%; display:block; }
 .ar-overlay{ position:absolute; inset:0; pointer-events:none; }
 .ar-flag{ position:absolute; top:50%; left:50%; transform: translate(-50%,-100%); display:flex; flex-direction:column; align-items:center;
   transition: left 0.08s linear, top 0.08s linear; }
-.ar-flag .pole{ width:2px; height:46px; background: var(--text); }
-.ar-flag .pennant{ width:0; height:0; border-left: 22px solid var(--flag); border-top: 9px solid transparent; border-bottom: 9px solid transparent;
-  position:absolute; top:0; left:2px; }
+.ar-flag .pole{ width:2px; height:46px; background: var(--text); position:relative; }
+.ar-flag .pennant{ width:26px; height:17px; background: var(--flag);
+  border-radius: 3px 7px 7px 3px; position:absolute; top:0; left:2px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.45); }
 .ar-flag .label{ margin-top:4px; background: rgba(18,16,14,0.75); border:1px solid var(--flag); color: var(--text);
   font-family:'IBM Plex Mono',monospace; font-size:11px; padding: 3px 7px; border-radius:6px; white-space:nowrap; }
 .ar-edge{ position:absolute; top:50%; transform: translateY(-50%); width:0; height:0;
@@ -114,7 +115,7 @@ body.ar-mode .ar-view{ flex:1 1 auto; }
 .trail-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
 .trail-head span{ font-size:11px; color: var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; }
 svg#trail{ width:100%; height: 34vh; max-height:280px; display:block; background: var(--bg);
-  border-radius: 10px; border: 1px solid var(--line); }
+  border-radius: 10px; border: 1px solid var(--line); touch-action: none; }
 
 /* --- Footer actions --- */
 footer{ display:flex; gap:8px; padding: 10px 14px calc(14px + env(safe-area-inset-bottom)); border-top:1px solid var(--line); }
@@ -262,6 +263,8 @@ const STORE_TARGET = 'navease:target';
 const STORE_VISITED = 'navease:visited';
 const MIN_BREADCRUMB_DIST = 5; // meters between recorded points
 const VISIT_RADIUS = 4; // meters — waypoint marked "reached" once you're this close
+let trailZoom = 1; // pinch/scroll zoom level for the trail radar, 1 = auto-fit
+const TRAIL_ZOOM_MIN = 0.4, TRAIL_ZOOM_MAX = 8;
 
 // ---------- Storage helpers ----------
 async function loadState(){
@@ -456,6 +459,7 @@ function renderTrail(){
     if(td <= maxExtent*3) maxExtent = Math.max(maxExtent, td);
   }
   maxExtent *= 1.25;
+  maxExtent /= trailZoom; // pinch/scroll zoom: higher trailZoom = smaller view radius = more zoomed in
   const scale = 130 / maxExtent; // px per meter, view radius ~130px
 
   function toSvg(east, north){ return { x: 150 + east*scale, y: 150 - north*scale }; }
@@ -496,7 +500,8 @@ function renderTrail(){
   svgHtml += `<g transform="translate(150,150) rotate(${rot})"><path d="M0,-11 L8,10 L0,4 L-8,10 Z" fill="var(--text)"/></g>`;
 
   svg.innerHTML = svgHtml;
-  document.getElementById('trailScale').textContent = 'r≈' + Math.round(maxExtent) + 'm';
+  const zoomTag = Math.abs(trailZoom - 1) > 0.05 ? ' · ' + trailZoom.toFixed(1) + 'x' : '';
+  document.getElementById('trailScale').textContent = 'r≈' + Math.round(maxExtent) + 'm' + zoomTag;
 }
 
 // ---------- AR camera view ----------
@@ -598,6 +603,53 @@ document.getElementById('tabTracking').onclick = ()=> switchTab('tracking');
 document.getElementById('tabAR').onclick = ()=> switchTab('ar');
 document.getElementById('arBack').onclick = ()=> switchTab('tracking');
 
+// ---------- Trail radar zoom (pinch on touch, wheel on desktop, double-tap to reset) ----------
+(function setupTrailZoom(){
+  const svg = document.getElementById('trail');
+  let pinchStartDist = null;
+  let pinchStartZoom = 1;
+  let lastTapTime = 0;
+
+  function dist(t0, t1){
+    return Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+  }
+  function setZoom(z){
+    trailZoom = Math.max(TRAIL_ZOOM_MIN, Math.min(TRAIL_ZOOM_MAX, z));
+    renderTrail();
+  }
+
+  svg.addEventListener('touchstart', (e)=>{
+    if(e.touches.length === 2){
+      pinchStartDist = dist(e.touches[0], e.touches[1]);
+      pinchStartZoom = trailZoom;
+    } else if(e.touches.length === 1){
+      const now = Date.now();
+      if(now - lastTapTime < 300){
+        setZoom(1); // double-tap resets to auto-fit
+      }
+      lastTapTime = now;
+    }
+  }, { passive:true });
+
+  svg.addEventListener('touchmove', (e)=>{
+    if(e.touches.length === 2 && pinchStartDist){
+      e.preventDefault();
+      const newDist = dist(e.touches[0], e.touches[1]);
+      setZoom(pinchStartZoom * (newDist / pinchStartDist));
+    }
+  }, { passive:false });
+
+  svg.addEventListener('touchend', (e)=>{
+    if(e.touches.length < 2) pinchStartDist = null;
+  }, { passive:true });
+
+  // Scroll-wheel / trackpad zoom, mainly useful when testing on desktop.
+  svg.addEventListener('wheel', (e)=>{
+    e.preventDefault();
+    setZoom(trailZoom * (e.deltaY < 0 ? 1.1 : 0.9));
+  }, { passive:false });
+})();
+
 // ---------- Toast ----------
 let toastTimer = null;
 function toast(msg){
@@ -675,6 +727,27 @@ function tiltCompensatedHeading(alpha, beta, gamma){
   if(heading < 0) heading += 360;
   return heading;
 }
+// Raw beta/gamma are relative to the device's physical frame, not the screen.
+// tiltCompensatedHeading already accounts for this internally (full rotation
+// matrix), so heading needs no extra correction. But rawPitch is a naive
+// single-axis reading used only for nudging the AR flag up/down on screen —
+// that DOES need to be remapped to whichever physical axis currently faces
+// "up" on screen, or the flag ends up drifting left/right in landscape
+// instead of up/down.
+function getScreenAngle(){
+  if(screen.orientation && typeof screen.orientation.angle === 'number') return screen.orientation.angle;
+  if(typeof window.orientation === 'number') return window.orientation;
+  return 0;
+}
+function screenRelativePitch(beta, gamma){
+  const angle = ((getScreenAngle() % 360) + 360) % 360;
+  switch(angle){
+    case 90:  return -gamma;
+    case 180: return -beta;
+    case 270: return gamma;
+    default:  return beta; // 0
+  }
+}
 function handleOrientation(event){
   let heading = null;
   if(typeof event.webkitCompassHeading === 'number'){
@@ -686,7 +759,9 @@ function handleOrientation(event){
     // ~90° error whenever the phone was held in landscape.
     heading = tiltCompensatedHeading(event.alpha, event.beta, event.gamma);
   }
-  if(event.beta !== null && event.beta !== undefined) rawPitch = event.beta;
+  if(event.beta !== null && event.beta !== undefined){
+    rawPitch = screenRelativePitch(event.beta, event.gamma || 0);
+  }
   if(heading !== null) applyHeading(heading);
 }
 function startCompass(){
