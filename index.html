@@ -887,6 +887,8 @@ function startGeo(){
 }
 
 // ---------- Compass / device orientation ----------
+let lastOrientationRenderTs = 0;
+const ORIENTATION_RENDER_THROTTLE_MS = 100; // ~10Hz — plenty smooth for a compass display, far less CPU than the 30-60Hz the sensor actually fires at
 function applyHeading(h){
   if(emaSin===null){ emaSin = Math.sin(rad(h)); emaCos = Math.cos(rad(h)); }
   else{
@@ -894,10 +896,17 @@ function applyHeading(h){
     emaCos = emaCos*(1-HEADING_SMOOTHING) + Math.cos(rad(h))*HEADING_SMOOTHING;
   }
   rawHeading = (deg(Math.atan2(emaSin, emaCos)) + 360) % 360;
-  setHdgPill('ok', 'HDG ' + Math.round(rawHeading) + '°');
-  renderHud();
-  renderTrail();
-  renderAR();
+  // rawHeading itself updates every event (so it's always current for GPS/route logic),
+  // but the expensive SVG redraws are throttled — the sensor fires far more often than
+  // a compass display needs to visibly update.
+  const now = Date.now();
+  if(now - lastOrientationRenderTs >= ORIENTATION_RENDER_THROTTLE_MS){
+    lastOrientationRenderTs = now;
+    setHdgPill('ok', 'HDG ' + Math.round(rawHeading) + '°');
+    renderHud();
+    renderTrail();
+    renderAR();
+  }
 }
 let rawPitch = null; // zero-centered elevation angle (deg) used to nudge the AR flag up/down
 
