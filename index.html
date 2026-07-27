@@ -562,9 +562,9 @@ function renderAR(){
     edgeL.style.display = 'none';
     edgeR.style.display = 'none';
     const xPct = 50 + (rel / half) * 48; // keep just inside the edges
-    // rough pitch nudge: tilting the phone up/down shifts where the flag should sit vertically.
-    // beta ~90 = phone upright/vertical; deviation moves the flag, clamped to a modest range.
-    const pitchDelta = rawPitch !== null ? Math.max(-35, Math.min(35, rawPitch - 90)) : 0;
+    // rawPitch is now a zero-centered elevation angle (0 = level with the horizon,
+    // positive = tilted up), from tiltCompensatedElevation — no -90 offset needed.
+    const pitchDelta = rawPitch !== null ? Math.max(-35, Math.min(35, rawPitch)) : 0;
     const yPct = 62 - (pitchDelta / 35) * 22;
     flag.style.left = xPct + '%';
     flag.style.top = Math.max(20, Math.min(85, yPct)) + '%';
@@ -713,7 +713,7 @@ function applyHeading(h){
   renderTrail();
   renderAR();
 }
-let rawPitch = null; // beta, used to nudge the AR flag up/down
+let rawPitch = null; // zero-centered elevation angle (deg) used to nudge the AR flag up/down
 
 // Tilt-compensated compass heading (valid flat, tilted, or held upright for the camera view).
 // Standard device-orientation -> world-frame projection, not just raw alpha.
@@ -727,26 +727,28 @@ function tiltCompensatedHeading(alpha, beta, gamma){
   if(heading < 0) heading += 360;
   return heading;
 }
-// Raw beta/gamma are relative to the device's physical frame, not the screen.
-// tiltCompensatedHeading already accounts for this internally (full rotation
-// matrix), so heading needs no extra correction. But rawPitch is a naive
-// single-axis reading used only for nudging the AR flag up/down on screen —
-// that DOES need to be remapped to whichever physical axis currently faces
-// "up" on screen, or the flag ends up drifting left/right in landscape
-// instead of up/down.
-function getScreenAngle(){
-  if(screen.orientation && typeof screen.orientation.angle === 'number') return screen.orientation.angle;
-  if(typeof window.orientation === 'number') return window.orientation;
-  return 0;
-}
-function screenRelativePitch(beta, gamma){
-  const angle = ((getScreenAngle() % 360) + 360) % 360;
-  switch(angle){
-    case 90:  return -gamma;
-    case 180: return -beta;
-    case 270: return gamma;
-    default:  return beta; // 0
-  }
+// Raw beta/gamma are relative to the device's physical frame, not the screen,
+// so a naive swap based on screen.orientation.angle is fragile — that angle
+// isn't reported consistently across browsers/devices, and a swap can end up
+// inverted depending on which landscape rotation you're holding the phone in
+// (that's what caused the flag to show while pointing at the ceiling).
+// Instead, compute the actual elevation of the direction the camera is
+// pointing using the same full rotation-matrix approach as tiltCompensatedHeading —
+// this is derived purely from the raw sensor angles, so it's correct in any
+// screen rotation without needing to know the rotation at all.
+// Returns degrees: 0 = pointing at the horizon, positive = tilted up, negative = tilted down.
+function tiltCompensatedElevation(alpha, beta, gamma){
+  const a = rad(alpha || 0), b = rad(beta || 0), g = rad(gamma || 0);
+  const cA = Math.cos(a), sA = Math.sin(a);
+  const cB = Math.cos(b), sB = Math.sin(b);
+  const cG = Math.cos(g), sG = Math.sin(g);
+  // World-frame direction the back of the device (camera) is pointing.
+  const r13 = cG*sA*sB + cA*sG;
+  const r23 = sA*sG - cA*cG*sB;
+  const r33 = cB*cG;
+  const vx = -r13, vy = -r23, vz = -r33;
+  const horiz = Math.hypot(vx, vy);
+  return deg(Math.atan2(vz, horiz));
 }
 function handleOrientation(event){
   let heading = null;
@@ -760,7 +762,7 @@ function handleOrientation(event){
     heading = tiltCompensatedHeading(event.alpha, event.beta, event.gamma);
   }
   if(event.beta !== null && event.beta !== undefined){
-    rawPitch = screenRelativePitch(event.beta, event.gamma || 0);
+    rawPitch = tiltCompensatedElevation(event.alpha, event.beta, event.gamma);
   }
   if(heading !== null) applyHeading(heading);
 }
