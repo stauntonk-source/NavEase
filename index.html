@@ -60,6 +60,17 @@ header{ padding: 14px 16px 10px; display:flex; align-items:center; justify-conte
 .wp-chip.active{ border-color: var(--hi-vis); background: rgba(200,255,61,0.08); }
 .wp-chip.active .name{ color: var(--hi-vis); }
 .wp-chip.add{ align-items:center; justify-content:center; color: var(--hi-vis); font-size:20px; min-width:44px; }
+/* --- Route mode chips --- */
+.wp-chip.route-current{ border-color: var(--flag); background: rgba(255,61,107,0.12); box-shadow: 0 0 0 1px var(--flag); }
+.wp-chip.route-current .name{ color: var(--flag); }
+.wp-chip.route-done{ opacity: 0.45; }
+.wp-chip.route-done .name{ text-decoration: line-through; }
+.wp-chip .route-badge{ font-size:9px; letter-spacing:0.5px; font-weight:700; color: var(--flag); }
+.wp-chip.exit{ border-color: var(--bad); color: var(--bad); align-items:center; justify-content:center; min-width:36px; font-size:16px; }
+.route-banner{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding: 6px 14px;
+  background: rgba(255,61,107,0.08); border-bottom:1px solid var(--line); font-size:11px; color: var(--text-muted);
+  font-family:'IBM Plex Mono',monospace; }
+.route-banner b{ color: var(--flag); }
 
 /* --- HUD --- */
 .hud{ flex: 1 1 auto; display:flex; flex-direction:column; align-items:center; justify-content:center;
@@ -100,8 +111,9 @@ svg#compass{ width:100%; height:100%; display:block; }
 .ar-info{ position:absolute; bottom:0; left:0; right:0; display:flex; align-items:center; gap:10px; justify-content:space-between;
   background: rgba(18,16,14,0.85); border-top:1px solid var(--line); padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   font-family:'IBM Plex Mono',monospace; font-size:12px; color: var(--text); flex-wrap:wrap; }
-.ar-back{ flex:0 0 auto; background: var(--hi-vis); color:#12100E; border:none; border-radius:8px;
-  padding: 7px 10px; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:12px; cursor:pointer; }
+.ar-back{ position:absolute; top: calc(10px + env(safe-area-inset-top)); left: calc(10px + env(safe-area-inset-left));
+  z-index:6; background: var(--hi-vis); color:#12100E; border:none; border-radius:8px;
+  padding: 9px 12px; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:12px; cursor:pointer; }
 .ar-empty, .ar-error{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center;
   color: var(--text-muted); font-size:13px; padding: 20px 30px; }
 .ar-error{ color: var(--warn); }
@@ -137,7 +149,11 @@ button:active{ transform: scale(0.97); }
 .modal .row{ display:flex; gap:8px; }
 .hint{ font-size:11px; color: var(--text-muted); margin: -4px 0 10px; line-height:1.4; }
 .wp-list-edit{ max-height: 30vh; overflow-y:auto; margin-bottom: 10px; }
-.wp-list-edit .item{ display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--line); font-size:13px; }
+.wp-list-edit .item{ display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--line); font-size:13px; gap:8px; }
+.wp-list-edit .item .name-block{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.wp-list-edit .item .controls{ display:flex; align-items:center; gap:2px; flex:0 0 auto; }
+.wp-list-edit .item .reorder{ color: var(--text-muted); cursor:pointer; padding: 4px 7px; font-size:14px; user-select:none; }
+.wp-list-edit .item .reorder.disabled{ opacity:0.25; pointer-events:none; }
 .wp-list-edit .item .x{ color: var(--bad); font-family:'IBM Plex Mono',monospace; cursor:pointer; padding: 4px 8px; }
 
 .toast{ position:fixed; bottom: 90px; left:50%; transform: translateX(-50%); background: var(--surface-2);
@@ -173,6 +189,7 @@ button:active{ transform: scale(0.97); }
   </div>
 </header>
 
+<div class="route-banner" id="routeBanner" style="display:none"></div>
 <div class="wp-strip" id="wpStrip"></div>
 
 <div class="tabs">
@@ -198,6 +215,7 @@ button:active{ transform: scale(0.97); }
 
 <div class="ar-view" id="viewAR">
   <video id="arVideo" autoplay playsinline muted></video>
+  <button class="ar-back" id="arBack">← Tracking</button>
   <div class="ar-overlay" id="arOverlay">
     <div class="ar-flag" id="arFlag" style="display:none">
       <div class="pole"><div class="pennant"></div></div>
@@ -207,7 +225,6 @@ button:active{ transform: scale(0.97); }
     <div class="ar-edge right" id="arEdgeRight"></div>
   </div>
   <div class="ar-info" id="arInfo" style="display:none">
-    <button class="ar-back" id="arBack">← Tracking</button>
     <span>HDG <b id="arHdg" class="mono">—</b></span>
     <span id="arTargetName">—</span>
     <span>ACC <b id="arAcc" class="mono">—</b></span>
@@ -239,8 +256,34 @@ button:active{ transform: scale(0.97); }
 <div class="modal-bg" id="manageModal">
   <div class="modal">
     <h2>Waypoints</h2>
+    <div class="hint">Use ▲▼ to reorder. This order is also used when exporting a CSV.</div>
     <div class="wp-list-edit" id="wpListEdit"></div>
+    <div class="row" style="margin-bottom:8px;">
+      <button class="primary" id="btnPlanRoute">Plan route</button>
+      <button class="ghost" id="btnExportCsv">Export CSV</button>
+    </div>
+    <div class="row" style="margin-bottom:8px;">
+      <button class="ghost" id="btnDeleteAll" style="color:var(--bad); border-color:var(--bad);">Delete all</button>
+    </div>
     <button class="ghost" id="btnCloseManage">Done</button>
+  </div>
+</div>
+
+<!-- Route builder modal -->
+<div class="modal-bg" id="routeModal">
+  <div class="modal">
+    <h2>Plan a route</h2>
+    <div class="hint">Tap waypoints below in the order you'll walk them — e.g. carpark, then each site, then the carpark again for the walk back. Tap a selected one again to remove it.</div>
+    <div class="wp-list-edit" id="routeSeqList"></div>
+    <div class="hint" id="routeAllHint" style="margin-top:0;">All waypoints</div>
+    <div class="wp-list-edit" id="routePickList"></div>
+    <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-muted); margin-bottom:10px;">
+      <input type="checkbox" id="chkReturnStart" style="width:auto; margin:0;"> Add the first stop again at the end (walk back to it)
+    </label>
+    <div class="row">
+      <button class="ghost" id="btnCancelRoute">Cancel</button>
+      <button class="primary" id="btnStartRoute">Start route</button>
+    </div>
   </div>
 </div>
 
@@ -261,10 +304,15 @@ const STORE_WAYPOINTS = 'navease:waypoints';
 const STORE_TRAIL = 'navease:trail';
 const STORE_TARGET = 'navease:target';
 const STORE_VISITED = 'navease:visited';
+const STORE_ROUTE = 'navease:route';
+const STORE_ROUTE_INDEX = 'navease:routeIndex';
 const MIN_BREADCRUMB_DIST = 5; // meters between recorded points
 const VISIT_RADIUS = 4; // meters — waypoint marked "reached" once you're this close
+const ROUTE_ADVANCE_RADIUS = 8; // meters — a bit more forgiving than VISIT_RADIUS, since GPS drifts under canopy
 let trailZoom = 1; // pinch/scroll zoom level for the trail radar, 1 = auto-fit
 const TRAIL_ZOOM_MIN = 0.4, TRAIL_ZOOM_MAX = 8;
+let route = [];             // ordered list of waypoint ids for a planned multi-stop route
+let routeIndex = 0;         // index into route[] of the current/next stop
 
 // ---------- Storage helpers ----------
 async function loadState(){
@@ -284,9 +332,23 @@ async function loadState(){
     const raw = localStorage.getItem(STORE_VISITED);
     if(raw) visitedIds = JSON.parse(raw);
   }catch(e){ visitedIds = []; }
+  try{
+    const raw = localStorage.getItem(STORE_ROUTE);
+    if(raw) route = JSON.parse(raw);
+  }catch(e){ route = []; }
+  try{
+    const raw = localStorage.getItem(STORE_ROUTE_INDEX);
+    if(raw) routeIndex = JSON.parse(raw);
+  }catch(e){ routeIndex = 0; }
   // if the stored target doesn't match any loaded waypoint (stale from an earlier test), clear it
   if(targetId && !waypoints.some(w => w.id === targetId)){
     targetId = null;
+  }
+  // drop any route stops referencing waypoints that no longer exist
+  if(route.length && route.some(id => !waypoints.some(w => w.id === id))){
+    route = route.filter(id => waypoints.some(w => w.id === id));
+    routeIndex = Math.min(routeIndex, Math.max(0, route.length - 1));
+    saveRoute();
   }
   renderWaypointStrip();
   renderTrail();
@@ -302,6 +364,10 @@ async function saveTarget(){
 }
 async function saveVisited(){
   try{ localStorage.setItem(STORE_VISITED, JSON.stringify(visitedIds)); }catch(e){ console.error(e); }
+}
+async function saveRoute(){
+  try{ localStorage.setItem(STORE_ROUTE, JSON.stringify(route)); }catch(e){ console.error(e); }
+  try{ localStorage.setItem(STORE_ROUTE_INDEX, JSON.stringify(routeIndex)); }catch(e){ console.error(e); }
 }
 
 // ---------- Geo math ----------
@@ -342,6 +408,8 @@ function setHdgPill(state, text){
 
 // ---------- Waypoint strip ----------
 function renderWaypointStrip(){
+  renderRouteBanner();
+  if(route.length > 0){ renderRouteStrip(); return; }
   const strip = document.getElementById('wpStrip');
   const sorted = [...waypoints];
   if(currentPos){
@@ -367,6 +435,87 @@ function renderWaypointStrip(){
   manage.textContent = '⋯';
   manage.onclick = openManage;
   strip.appendChild(manage);
+}
+
+// ---------- Route mode: an ordered, multi-stop sequence with one clear "next" stop ----------
+function renderRouteBanner(){
+  const banner = document.getElementById('routeBanner');
+  if(route.length === 0){ banner.style.display = 'none'; return; }
+  banner.style.display = 'flex';
+  const done = Math.min(routeIndex, route.length);
+  const finished = routeIndex >= route.length;
+  const nextWp = !finished ? waypoints.find(w=>w.id===route[routeIndex]) : null;
+  const label = finished
+    ? '<b>Route complete</b> — ' + route.length + ' stop' + (route.length===1?'':'s')
+    : 'Route <b>' + (done+1) + '/' + route.length + '</b> — next: <b>' + escapeHtml(nextWp ? nextWp.name : '—') + '</b>';
+  banner.innerHTML = `<span>${label}</span><span style="color:var(--bad); cursor:pointer; font-weight:600;" id="btnEndRoute">✕ End route</span>`;
+  document.getElementById('btnEndRoute').onclick = endRoute;
+}
+
+function renderRouteStrip(){
+  const strip = document.getElementById('wpStrip');
+  strip.innerHTML = '';
+  route.forEach((id, i)=>{
+    const wp = waypoints.find(w=>w.id===id);
+    if(!wp) return;
+    const chip = document.createElement('div');
+    let stateClass = '';
+    if(i < routeIndex) stateClass = ' route-done';
+    else if(i === routeIndex) stateClass = ' route-current';
+    chip.className = 'wp-chip' + stateClass;
+    const d = currentPos ? Math.round(distanceM(currentPos.lat,currentPos.lon,wp.lat,wp.lon)) + ' m' : '—';
+    const badge = i === routeIndex ? '<span class="route-badge">NEXT</span>' : (i < routeIndex ? '<span class="route-badge" style="color:var(--text-muted)">✓ DONE</span>' : '<span class="route-badge" style="color:var(--text-muted)">#'+(i+1)+'</span>');
+    chip.innerHTML = `${badge}<span class="name">${escapeHtml(wp.name)}</span><span class="dist mono">${d}</span>`;
+    // Tap any stop to jump straight to it — doubles as the "skip ahead" control
+    // (and lets you jump back if you need to revisit somewhere).
+    chip.onclick = ()=>{ setRouteIndex(i); toast((i>routeIndex?'Skipped to ':'Back to ') + wp.name); };
+    strip.appendChild(chip);
+  });
+}
+
+function setRouteIndex(i){
+  routeIndex = Math.max(0, Math.min(route.length - 1, i));
+  targetId = route[routeIndex];
+  saveRoute(); saveTarget();
+  renderWaypointStrip(); renderHud(); renderTrail(); renderAR();
+}
+
+function startRoute(ids, returnToStart){
+  if(ids.length === 0) return;
+  route = returnToStart && ids[ids.length-1] !== ids[0] ? [...ids, ids[0]] : [...ids];
+  routeIndex = 0;
+  targetId = route[0];
+  saveRoute(); saveTarget();
+  renderWaypointStrip(); renderHud(); renderTrail(); renderAR();
+  toast('Route started — ' + route.length + ' stops');
+}
+
+function endRoute(){
+  route = [];
+  routeIndex = 0;
+  saveRoute();
+  renderWaypointStrip(); renderHud(); renderTrail(); renderAR();
+  toast('Route ended');
+}
+
+// Called on every GPS fix — auto-advances the route when close to the next stop.
+function checkRouteAdvance(lat, lon){
+  if(route.length === 0 || routeIndex >= route.length) return;
+  const wp = waypoints.find(w=>w.id===route[routeIndex]);
+  if(!wp) return;
+  if(distanceM(lat, lon, wp.lat, wp.lon) <= ROUTE_ADVANCE_RADIUS){
+    routeIndex++;
+    if(routeIndex >= route.length){
+      saveRoute();
+      toast('Route complete — ' + route.length + ' of ' + route.length + ' stops reached');
+    } else {
+      targetId = route[routeIndex];
+      saveRoute(); saveTarget();
+      const next = waypoints.find(w=>w.id===targetId);
+      toast('Reached ' + wp.name + ' — next: ' + (next ? next.name : '—'));
+    }
+    renderWaypointStrip();
+  }
 }
 
 function escapeHtml(s){ return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -458,6 +607,16 @@ function renderTrail(){
     const td = Math.hypot(targetPt.east, targetPt.north);
     if(td <= maxExtent*3) maxExtent = Math.max(maxExtent, td);
   }
+  // in route mode, try to fit the remaining planned stops too, not just the current one
+  if(route.length > 0){
+    route.forEach(id=>{
+      const wp = waypoints.find(w=>w.id===id);
+      if(!wp) return;
+      const pt = toLocalEN(wp.lat, wp.lon, ref.lat, ref.lon);
+      const rd = Math.hypot(pt.east, pt.north);
+      if(rd <= maxExtent*3) maxExtent = Math.max(maxExtent, rd);
+    });
+  }
   maxExtent *= 1.25;
   maxExtent /= trailZoom; // pinch/scroll zoom: higher trailZoom = smaller view radius = more zoomed in
   const scale = 130 / maxExtent; // px per meter, view radius ~130px
@@ -486,6 +645,32 @@ function renderTrail(){
     svgHtml += `<circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="5" fill="#3D9BFF" stroke="var(--bg)" stroke-width="1.5"/>`;
     svgHtml += `<text x="${sx.toFixed(1)}" y="${(sy-10).toFixed(1)}" text-anchor="middle" fill="#3D9BFF" font-size="10" font-family="IBM Plex Mono, monospace">${escapeHtml(v.wp.name)}</text>`;
   });
+  // route mode: draw the whole planned path so the upcoming stops are visible at a glance,
+  // not just the immediate next one
+  if(route.length > 0){
+    function clampToView(pt){
+      const rawD = Math.hypot(pt.east, pt.north) || 0.0001;
+      return { x: 150 + (pt.east/rawD) * Math.min(rawD*scale, 130), y: 150 - (pt.north/rawD) * Math.min(rawD*scale, 130) };
+    }
+    const routePts = route.map(id=>{
+      const wp = waypoints.find(w=>w.id===id);
+      return wp ? { wp, pt: toLocalEN(wp.lat, wp.lon, ref.lat, ref.lon) } : null;
+    }).filter(Boolean);
+    if(routePts.length > 1){
+      const d = routePts.map((r,i)=>{ const s = clampToView(r.pt); return (i===0?'M':'L') + s.x.toFixed(1)+','+s.y.toFixed(1); }).join(' ');
+      svgHtml += `<path d="${d}" fill="none" stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="2,5" opacity="0.5"/>`;
+    }
+    routePts.forEach((r, i)=>{
+      if(i === routeIndex) return; // current target is drawn as the big pink marker below
+      const s = clampToView(r.pt);
+      if(i < routeIndex){
+        svgHtml += `<circle cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="4" fill="#3D9BFF" stroke="var(--bg)" stroke-width="1.5"/>`;
+      } else {
+        svgHtml += `<circle cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="4" fill="var(--bg)" stroke="var(--text-muted)" stroke-width="1.5"/>`;
+        svgHtml += `<text x="${s.x.toFixed(1)}" y="${(s.y+13).toFixed(1)}" text-anchor="middle" fill="var(--text-muted)" font-size="9" font-family="IBM Plex Mono, monospace">${i+1}</text>`;
+      }
+    });
+  }
   // target waypoint (clamp to edge if far)
   if(targetPt){
     const rawD = Math.hypot(targetPt.east, targetPt.north) || 0.0001;
@@ -692,6 +877,7 @@ function startGeo(){
       saveTrail();
     }
     checkVisited(latitude, longitude);
+    checkRouteAdvance(latitude, longitude);
     renderWaypointStrip();
     renderHud();
     renderTrail();
@@ -788,20 +974,145 @@ function startCompass(){
 function openManage(){
   const list = document.getElementById('wpListEdit');
   list.innerHTML = waypoints.length ? '' : '<div class="hint">No waypoints yet.</div>';
-  waypoints.forEach(wp=>{
+  waypoints.forEach((wp, idx)=>{
     const row = document.createElement('div');
     row.className = 'item';
-    row.innerHTML = `<span>${escapeHtml(wp.name)} <span class="mono" style="color:var(--text-muted)">(${wp.lat.toFixed(5)}, ${wp.lon.toFixed(5)})</span></span><span class="x">✕</span>`;
+    const upDisabled = idx === 0 ? ' disabled' : '';
+    const downDisabled = idx === waypoints.length - 1 ? ' disabled' : '';
+    row.innerHTML = `<span class="name-block">${escapeHtml(wp.name)} <span class="mono" style="color:var(--text-muted)">(${wp.lat.toFixed(5)}, ${wp.lon.toFixed(5)})</span></span>
+      <span class="controls">
+        <span class="reorder${upDisabled}" data-dir="up">▲</span>
+        <span class="reorder${downDisabled}" data-dir="down">▼</span>
+        <span class="x">✕</span>
+      </span>`;
     row.querySelector('.x').onclick = ()=>{
       waypoints = waypoints.filter(w=>w.id!==wp.id);
       if(targetId===wp.id) targetId = null;
       saveWaypoints(); saveTarget(); renderWaypointStrip(); renderHud(); renderTrail(); openManage();
     };
+    row.querySelectorAll('.reorder').forEach(btn=>{
+      btn.onclick = ()=>{
+        const dir = btn.dataset.dir;
+        const i = waypoints.findIndex(w=>w.id===wp.id);
+        const swapWith = dir === 'up' ? i - 1 : i + 1;
+        if(swapWith < 0 || swapWith >= waypoints.length) return;
+        [waypoints[i], waypoints[swapWith]] = [waypoints[swapWith], waypoints[i]];
+        saveWaypoints(); openManage();
+      };
+    });
     list.appendChild(row);
   });
   document.getElementById('manageModal').classList.add('open');
 }
 document.getElementById('btnCloseManage').onclick = ()=> document.getElementById('manageModal').classList.remove('open');
+
+document.getElementById('btnDeleteAll').onclick = ()=>{
+  if(waypoints.length === 0) return;
+  if(!confirm('Delete all ' + waypoints.length + ' waypoints? This cannot be undone.')) return;
+  waypoints = [];
+  targetId = null;
+  visitedIds = [];
+  saveWaypoints(); saveTarget(); saveVisited();
+  renderWaypointStrip(); renderHud(); renderTrail(); openManage();
+  toast('All waypoints deleted');
+};
+
+document.getElementById('btnExportCsv').onclick = ()=>{
+  if(waypoints.length === 0){ toast('No waypoints to export'); return; }
+  const rows = ['name,lat,lon'];
+  waypoints.forEach(wp=>{
+    // quote the name in case it contains a comma
+    const name = '"' + String(wp.name).replace(/"/g, '""') + '"';
+    rows.push(name + ',' + wp.lat + ',' + wp.lon);
+  });
+  const csv = rows.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0,10);
+  a.href = url;
+  a.download = 'navease-waypoints-' + stamp + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  toast('Exported ' + waypoints.length + ' waypoints');
+};
+
+// ---------- Route builder ----------
+let routeBuilderSeq = []; // ids, in tap order, while the builder modal is open
+
+function openRouteBuilder(){
+  if(waypoints.length === 0){ toast('Add some waypoints first'); return; }
+  routeBuilderSeq = [];
+  document.getElementById('chkReturnStart').checked = true;
+  document.getElementById('manageModal').classList.remove('open');
+  renderRouteBuilder();
+  document.getElementById('routeModal').classList.add('open');
+}
+
+function renderRouteBuilder(){
+  const seqList = document.getElementById('routeSeqList');
+  const pickList = document.getElementById('routePickList');
+
+  // Selected sequence, with reorder + remove controls
+  seqList.innerHTML = routeBuilderSeq.length ? '' : '<div class="hint" style="margin:0 0 8px;">No stops selected yet — tap below to add.</div>';
+  routeBuilderSeq.forEach((id, idx)=>{
+    const wp = waypoints.find(w=>w.id===id);
+    if(!wp) return;
+    const row = document.createElement('div');
+    row.className = 'item';
+    const upDisabled = idx === 0 ? ' disabled' : '';
+    const downDisabled = idx === routeBuilderSeq.length - 1 ? ' disabled' : '';
+    row.innerHTML = `<span class="name-block"><span class="mono" style="color:var(--hi-vis)">${idx+1}.</span> ${escapeHtml(wp.name)}</span>
+      <span class="controls">
+        <span class="reorder${upDisabled}" data-dir="up">▲</span>
+        <span class="reorder${downDisabled}" data-dir="down">▼</span>
+        <span class="x">✕</span>
+      </span>`;
+    row.querySelector('.x').onclick = ()=>{ routeBuilderSeq.splice(idx,1); renderRouteBuilder(); };
+    row.querySelectorAll('.reorder').forEach(btn=>{
+      btn.onclick = ()=>{
+        const swapWith = btn.dataset.dir === 'up' ? idx - 1 : idx + 1;
+        if(swapWith < 0 || swapWith >= routeBuilderSeq.length) return;
+        [routeBuilderSeq[idx], routeBuilderSeq[swapWith]] = [routeBuilderSeq[swapWith], routeBuilderSeq[idx]];
+        renderRouteBuilder();
+      };
+    });
+    seqList.appendChild(row);
+  });
+
+  // Full waypoint picker (nearest-first, like the main strip) to tap-add
+  document.getElementById('routeAllHint').style.display = waypoints.length ? '' : 'none';
+  const sorted = [...waypoints];
+  if(currentPos){
+    sorted.sort((a,b)=> distanceM(currentPos.lat,currentPos.lon,a.lat,a.lon) - distanceM(currentPos.lat,currentPos.lon,b.lat,b.lon));
+  }
+  pickList.innerHTML = '';
+  sorted.forEach(wp=>{
+    const inSeq = routeBuilderSeq.includes(wp.id);
+    const row = document.createElement('div');
+    row.className = 'item';
+    row.style.cursor = 'pointer';
+    if(inSeq) row.style.opacity = '0.4';
+    const d = currentPos ? Math.round(distanceM(currentPos.lat,currentPos.lon,wp.lat,wp.lon)) + ' m' : '—';
+    row.innerHTML = `<span class="name-block">${escapeHtml(wp.name)} <span class="mono" style="color:var(--text-muted)">${d}</span></span><span class="mono" style="color:var(--hi-vis)">${inSeq ? '✓ added' : '+ add'}</span>`;
+    row.onclick = ()=>{
+      if(inSeq) routeBuilderSeq = routeBuilderSeq.filter(id=>id!==wp.id);
+      else routeBuilderSeq.push(wp.id);
+      renderRouteBuilder();
+    };
+    pickList.appendChild(row);
+  });
+}
+
+document.getElementById('btnPlanRoute').onclick = openRouteBuilder;
+document.getElementById('btnCancelRoute').onclick = ()=> document.getElementById('routeModal').classList.remove('open');
+document.getElementById('btnStartRoute').onclick = ()=>{
+  if(routeBuilderSeq.length === 0){ toast('Select at least one stop'); return; }
+  startRoute(routeBuilderSeq, document.getElementById('chkReturnStart').checked);
+  document.getElementById('routeModal').classList.remove('open');
+};
 
 document.getElementById('btnAddHere').onclick = ()=>{
   if(!currentPos){ toast('No GPS fix yet'); return; }
@@ -823,18 +1134,52 @@ document.getElementById('btnClearTrail').onclick = ()=>{
 document.getElementById('btnImport').onclick = ()=> document.getElementById('importModal').classList.add('open');
 document.getElementById('btnCancelImport').onclick = ()=> document.getElementById('importModal').classList.remove('open');
 
+// Proper CSV field parser: respects quoted fields (so a comma inside a
+// quoted notes/description column doesn't shift lat/lon into the wrong
+// field — which was silently producing wildly wrong coordinates on imports
+// that had a notes column with commas in it, e.g. some Google Drive/Sheets
+// round-trips of a Field Maps export).
+function parseCsvLine(line){
+  const result = [];
+  let cur = '';
+  let inQuotes = false;
+  for(let i=0; i<line.length; i++){
+    const c = line[i];
+    if(inQuotes){
+      if(c === '"'){
+        if(line[i+1] === '"'){ cur += '"'; i++; }
+        else inQuotes = false;
+      } else {
+        cur += c;
+      }
+    } else {
+      if(c === '"'){ inQuotes = true; }
+      else if(c === ','){ result.push(cur); cur = ''; }
+      else { cur += c; }
+    }
+  }
+  result.push(cur);
+  return result.map(s=>s.trim());
+}
+
 function doImport(){
  try{
   const raw = document.getElementById('csvInput').value.replace(/^\uFEFF/, '').trim();
   if(!raw){ document.getElementById('importModal').classList.remove('open'); return; }
   let added = 0;
+  let skippedBadCoords = 0;
   let firstNewId = null;
   raw.split('\n').forEach(line=>{
-    const parts = line.split(',').map(s=>s.trim());
+    if(!line.trim()) return;
+    const parts = parseCsvLine(line);
     if(parts.length < 3) return;
     const [name, latS, lonS] = parts;
     const lat = parseFloat(latS), lon = parseFloat(lonS);
     if(isNaN(lat) || isNaN(lon)) return; // skips header rows too
+    // Sanity-check the range — catches misaligned columns (e.g. a notes field
+    // with an embedded comma shifting values) instead of silently importing
+    // a wildly wrong location.
+    if(lat < -90 || lat > 90 || lon < -180 || lon > 180){ skippedBadCoords++; return; }
     const id = 'w' + Date.now() + Math.random().toString(36).slice(2,6);
     waypoints.push({ id, name, lat, lon });
     if(firstNewId === null) firstNewId = id;
@@ -853,7 +1198,11 @@ function doImport(){
   document.getElementById('csvFile').value = '';
   document.getElementById('importModal').classList.remove('open');
   if(added > 0){
-    toast(added + ' waypoint' + (added===1?'':'s') + ' imported — tap one above to track it');
+    let msg = added + ' waypoint' + (added===1?'':'s') + ' imported — tap one above to track it';
+    if(skippedBadCoords > 0) msg += ' (' + skippedBadCoords + ' row' + (skippedBadCoords===1?'':'s') + ' skipped — out-of-range coordinates, check the CSV columns)';
+    toast(msg);
+  } else if(skippedBadCoords > 0){
+    alert(skippedBadCoords + ' row(s) had out-of-range coordinates and were skipped. This usually means the columns are misaligned — check for commas inside an unquoted notes/description field.');
   } else {
     toast('No valid rows found — check the format is name, lat, lon');
   }
