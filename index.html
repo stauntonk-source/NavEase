@@ -52,42 +52,46 @@ header{ padding: 14px 16px 10px; display:flex; align-items:center; justify-conte
 .wp-strip{ display:flex; gap:8px; overflow-x:auto; padding: 10px 14px; border-bottom:1px solid var(--line);
   background: var(--surface); scrollbar-width:none; }
 .wp-strip::-webkit-scrollbar{ display:none; }
-.wp-chip{ flex: 0 0 auto; padding: 8px 12px; border-radius: 10px; border:1px solid var(--line);
+.wp-chip{ flex: 0 0 auto; padding: 9px 13px; border-radius: 10px; border:1px solid var(--line);
   background: var(--surface-2); font-size:12px; color: var(--text-muted); white-space:nowrap; cursor:pointer;
-  display:flex; flex-direction:column; gap:2px; min-width: 84px; }
-.wp-chip .name{ color: var(--text); font-weight:600; font-size:13px; }
-.wp-chip .dist{ font-family:'IBM Plex Mono',monospace; font-size:11px; }
+  display:flex; flex-direction:column; gap:2px; min-width: 92px; }
+.wp-chip .name{ color: var(--text); font-weight:600; font-size:14px; }
+.wp-chip .dist{ font-family:'IBM Plex Mono',monospace; font-size:12px; }
 .wp-chip.active{ border-color: var(--hi-vis); background: rgba(200,255,61,0.08); }
 .wp-chip.active .name{ color: var(--hi-vis); }
-.wp-chip.add{ align-items:center; justify-content:center; color: var(--hi-vis); font-size:20px; min-width:44px; }
+.wp-chip.add{ align-items:center; justify-content:center; color: var(--hi-vis); font-size:20px; min-width:48px; }
 /* --- Route mode chips --- */
 .wp-chip.route-current{ border-color: var(--flag); background: rgba(255,61,107,0.12); box-shadow: 0 0 0 1px var(--flag); }
 .wp-chip.route-current .name{ color: var(--flag); }
-.wp-chip.route-done{ opacity: 0.45; }
-.wp-chip.route-done .name{ text-decoration: line-through; }
-.wp-chip .route-badge{ font-size:9px; letter-spacing:0.5px; font-weight:700; color: var(--flag); }
+/* Reached stops stay fully tappable (you often need to go back to one that's
+   hard to find on the ground), so keep them legible rather than greying them out. */
+.wp-chip.route-done{ opacity: 0.75; border-style: dashed; }
+.wp-chip.route-done .name{ color: var(--text-muted); }
+.wp-chip .route-badge{ font-size:10px; letter-spacing:0.5px; font-weight:700; color: var(--flag); }
 .wp-chip.exit{ border-color: var(--bad); color: var(--bad); align-items:center; justify-content:center; min-width:36px; font-size:16px; }
-.route-banner{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding: 6px 14px;
-  background: rgba(255,61,107,0.08); border-bottom:1px solid var(--line); font-size:11px; color: var(--text-muted);
+.route-banner{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding: 9px 14px;
+  background: rgba(255,61,107,0.10); border-bottom:1px solid var(--line); font-size:12px; color: var(--text-muted);
   font-family:'IBM Plex Mono',monospace; }
 .route-banner b{ color: var(--flag); }
 
 /* --- HUD --- */
 .hud{ flex: 1 1 auto; display:flex; flex-direction:column; align-items:center; justify-content:center;
   padding: 18px 16px 6px; gap: 10px; position:relative; }
-.target-name{ font-size: 13px; color: var(--text-muted); letter-spacing: 0.5px; text-transform:uppercase; }
+.target-name{ font-size: 14px; color: var(--text-muted); letter-spacing: 0.5px; text-transform:uppercase; }
 .compass-wrap{ position:relative; width: min(72vw, 320px); height: min(72vw, 320px); }
 svg#compass{ width:100%; height:100%; display:block; }
-.distance{ font-size: 15vw; max-font-size: 64px; font-weight:700; line-height:1; font-family:'IBM Plex Mono',monospace; }
-.distance-unit{ font-size: 16px; color: var(--text-muted); margin-left:6px; }
-.bearing-row{ display:flex; gap:18px; color: var(--text-muted); font-size:12px; font-family:'IBM Plex Mono',monospace; }
+/* max-font-size isn't a real CSS property — it was silently ignored, leaving this
+   unclamped at 15vw. min() actually applies the ceiling. */
+.distance{ font-size: min(15vw, 64px); font-weight:700; line-height:1; font-family:'IBM Plex Mono',monospace; }
+.distance-unit{ font-size: 17px; color: var(--text-muted); margin-left:6px; }
+.bearing-row{ display:flex; gap:18px; color: var(--text-muted); font-size:13px; font-family:'IBM Plex Mono',monospace; }
 .bearing-row b{ color: var(--text); }
 .no-target{ text-align:center; color: var(--text-muted); font-size: 14px; padding: 30px 20px; }
-.turn-hint{ font-size: 11px; color: var(--text-muted); text-align:center; margin-top:-2px; }
+.turn-hint{ font-size: 12px; color: var(--text-muted); text-align:center; margin-top:-2px; }
 
 /* --- Tabs --- */
 .tabs{ display:flex; gap:6px; padding: 8px 14px; background: var(--surface); border-bottom:1px solid var(--line); }
-.tab{ flex:1; text-align:center; padding: 7px 0; border-radius: 8px; font-size:12px; font-weight:600;
+.tab{ flex:1; text-align:center; padding: 11px 0; border-radius: 8px; font-size:13px; font-weight:600;
   color: var(--text-muted); border:1px solid var(--line); cursor:pointer; letter-spacing:0.3px; }
 .tab.active{ color: var(--bg); background: var(--hi-vis); border-color: var(--hi-vis); }
 
@@ -132,11 +136,13 @@ svg#trail{ width:100%; height: 34vh; max-height:280px; display:block; background
   border-radius: 10px; border: 1px solid var(--line); touch-action: none; }
 
 /* --- Footer actions --- */
-footer{ display:flex; gap:8px; padding: 10px 14px calc(14px + env(safe-area-inset-bottom)); border-top:1px solid var(--line); }
+footer{ display:flex; gap:8px; padding: 10px 14px calc(14px + env(safe-area-inset-bottom)); border-top:1px solid var(--line); align-items:stretch; }
 button{ font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13px; border-radius:10px; border:1px solid var(--line);
-  background: var(--surface-2); color: var(--text); padding: 11px 10px; flex:1; cursor:pointer; }
+  background: var(--surface-2); color: var(--text); padding: 12px 10px; flex:1; cursor:pointer; }
 button.primary{ background: var(--hi-vis); color:#12100E; border-color: var(--hi-vis); }
 button.ghost{ background:transparent; }
+/* destructive, rarely used — shouldn't compete visually with the everyday actions */
+button.subtle{ flex: 0 0 auto; padding: 12px 12px; color: var(--text-muted); background:transparent; font-size:12px; }
 button:active{ transform: scale(0.97); }
 
 /* --- Modal --- */
@@ -158,6 +164,13 @@ button:active{ transform: scale(0.97); }
 .wp-list-edit .item .reorder.disabled{ opacity:0.25; pointer-events:none; }
 .wp-list-edit .item .x{ color: var(--bad); font-family:'IBM Plex Mono',monospace; cursor:pointer; padding: 4px 8px; }
 
+.arrival{ position:fixed; top:0; left:0; right:0; z-index:60; background: var(--flag); color:#fff;
+  padding: 14px 16px calc(14px + env(safe-area-inset-top)); text-align:center; display:none;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5); animation: arrivePulse 0.9s ease-in-out 3; }
+.arrival .big{ font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:17px; display:block; }
+.arrival .sub{ font-family:'IBM Plex Mono',monospace; font-size:12px; opacity:0.9; }
+.arrival .dismiss{ position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:20px; cursor:pointer; opacity:0.85; }
+@keyframes arrivePulse{ 0%,100%{ filter:brightness(1); } 50%{ filter:brightness(1.25); } }
 .toast{ position:fixed; bottom: 90px; left:50%; transform: translateX(-50%); background: var(--surface-2);
   border:1px solid var(--hi-vis-dim); color: var(--text); padding: 10px 16px; border-radius: 10px; font-size:13px;
   opacity:0; pointer-events:none; transition: opacity 0.25s; z-index:20; }
@@ -237,7 +250,7 @@ button:active{ transform: scale(0.97); }
 </div>
 
 <footer>
-  <button class="ghost" id="btnClearTrail">Clear track</button>
+  <button class="subtle" id="btnClearTrail">Clear track</button>
   <button id="btnImport">Import CSV</button>
   <button class="primary" id="btnAddHere">+ Add waypoint here</button>
 </footer>
@@ -276,7 +289,7 @@ button:active{ transform: scale(0.97); }
 <!-- Route builder modal -->
 <div class="modal-bg" id="routeModal">
   <div class="modal">
-    <h2>Plan a route</h2>
+    <h2 id="routeModalTitle">Plan a route</h2>
     <div class="hint">Tap waypoints below in the order you'll walk them — e.g. carpark, then each site, then the carpark again for the walk back. Tap a selected one again to remove it.</div>
     <div class="wp-list-edit" id="routeSeqList"></div>
     <div class="hint" id="routeAllHint" style="margin-top:0;">All waypoints</div>
@@ -291,6 +304,7 @@ button:active{ transform: scale(0.97); }
   </div>
 </div>
 
+<div class="arrival" id="arrival"></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -313,6 +327,10 @@ const STORE_ROUTE_INDEX = 'navease:routeIndex';
 const MIN_BREADCRUMB_DIST = 5; // meters between recorded points
 const VISIT_RADIUS = 4; // meters — waypoint marked "reached" once you're this close
 const ROUTE_ADVANCE_RADIUS = 8; // meters — a bit more forgiving than VISIT_RADIUS, since GPS drifts under canopy
+const ROUTE_APPROACH_RADIUS = 10; // meters — heads-up buzz just before the auto-advance kicks in
+let approachNotifiedIndex = null; // route index we've already buzzed for, so it only fires once per stop
+let holdRouteIndex = false; // set when the user manually picks a stop they're already standing near,
+                            // so auto-advance doesn't immediately bounce them forward again
 let trailZoom = 1; // pinch/scroll zoom level for the trail radar, 1 = auto-fit
 const TRAIL_ZOOM_MIN = 0.4, TRAIL_ZOOM_MAX = 8;
 let route = [];             // ordered list of waypoint ids for a planned multi-stop route
@@ -452,8 +470,9 @@ function renderRouteBanner(){
   const label = finished
     ? '<b>Route complete</b> — ' + route.length + ' stop' + (route.length===1?'':'s')
     : 'Route <b>' + (done+1) + '/' + route.length + '</b> — next: <b>' + escapeHtml(nextWp ? nextWp.name : '—') + '</b>';
-  banner.innerHTML = `<span>${label}</span><span style="color:var(--bad); cursor:pointer; font-weight:600;" id="btnEndRoute">✕ End route</span>`;
+  banner.innerHTML = `<span>${label}</span><span style="flex:0 0 auto; display:flex; gap:12px;"><span style="color:var(--hi-vis); cursor:pointer; font-weight:600;" id="btnEditRoute">✎ Edit</span><span style="color:var(--bad); cursor:pointer; font-weight:600;" id="btnEndRoute">✕ End</span></span>`;
   document.getElementById('btnEndRoute').onclick = endRoute;
+  document.getElementById('btnEditRoute').onclick = ()=> openRouteBuilder(true);
 }
 
 function renderRouteStrip(){
@@ -468,18 +487,37 @@ function renderRouteStrip(){
     else if(i === routeIndex) stateClass = ' route-current';
     chip.className = 'wp-chip' + stateClass;
     const d = currentPos ? Math.round(distanceM(currentPos.lat,currentPos.lon,wp.lat,wp.lon)) + ' m' : '—';
-    const badge = i === routeIndex ? '<span class="route-badge">NEXT</span>' : (i < routeIndex ? '<span class="route-badge" style="color:var(--text-muted)">✓ DONE</span>' : '<span class="route-badge" style="color:var(--text-muted)">#'+(i+1)+'</span>');
+    let badge;
+    if(i === routeIndex){
+      badge = holdRouteIndex
+        ? '<span class="route-badge">HOLDING HERE</span>'
+        : '<span class="route-badge">NEXT</span>';
+    } else if(i < routeIndex){
+      badge = '<span class="route-badge" style="color:var(--text-muted)">✓ DONE · tap</span>';
+    } else {
+      badge = '<span class="route-badge" style="color:var(--text-muted)">#'+(i+1)+'</span>';
+    }
     chip.innerHTML = `${badge}<span class="name">${escapeHtml(wp.name)}</span><span class="dist mono">${d}</span>`;
     // Tap any stop to jump straight to it — doubles as the "skip ahead" control
-    // (and lets you jump back if you need to revisit somewhere).
-    chip.onclick = ()=>{ setRouteIndex(i); toast((i>routeIndex?'Skipped to ':'Back to ') + wp.name); };
+    // and lets you go back to a stop you've already passed (e.g. a tree that's
+    // proving hard to actually locate on the ground).
+    chip.onclick = ()=>{ setRouteIndex(i, true); toast((i>routeIndex?'Skipped to ':'Tracking ') + wp.name); };
     strip.appendChild(chip);
   });
 }
 
-function setRouteIndex(i){
+function setRouteIndex(i, manual){
   routeIndex = Math.max(0, Math.min(route.length - 1, i));
   targetId = route[routeIndex];
+  // If the user deliberately picked a stop they're already standing within range of,
+  // don't let auto-advance immediately shunt them forward again — hold until they
+  // physically walk back out of the radius. Without this, tapping a stop you've just
+  // reached appears to do nothing, because the next GPS fix re-advances instantly.
+  if(manual){
+    approachNotifiedIndex = null;
+    const wp = waypoints.find(w=>w.id===targetId);
+    holdRouteIndex = !!(wp && currentPos && distanceM(currentPos.lat, currentPos.lon, wp.lat, wp.lon) <= ROUTE_ADVANCE_RADIUS);
+  }
   saveRoute(); saveTarget();
   renderWaypointStrip(); renderHud(); renderTrail(); renderAR();
 }
@@ -489,6 +527,8 @@ function startRoute(ids, returnToStart){
   route = returnToStart && ids[ids.length-1] !== ids[0] ? [...ids, ids[0]] : [...ids];
   routeIndex = 0;
   targetId = route[0];
+  approachNotifiedIndex = null;
+  holdRouteIndex = false;
   saveRoute(); saveTarget();
   renderWaypointStrip(); renderHud(); renderTrail(); renderAR();
   toast('Route started — ' + route.length + ' stops');
@@ -497,23 +537,46 @@ function startRoute(ids, returnToStart){
 function endRoute(){
   route = [];
   routeIndex = 0;
+  approachNotifiedIndex = null;
+  holdRouteIndex = false;
   saveRoute();
   renderWaypointStrip(); renderHud(); renderTrail(); renderAR();
   toast('Route ended');
 }
 
-// Called on every GPS fix — auto-advances the route when close to the next stop.
+function buzz(pattern){
+  try{ if(navigator.vibrate) navigator.vibrate(pattern); }catch(e){}
+}
+
+// Called on every GPS fix — buzzes on approach, then auto-advances when close enough.
 function checkRouteAdvance(lat, lon){
   if(route.length === 0 || routeIndex >= route.length) return;
   const wp = waypoints.find(w=>w.id===route[routeIndex]);
   if(!wp) return;
-  if(distanceM(lat, lon, wp.lat, wp.lon) <= ROUTE_ADVANCE_RADIUS){
+  const d = distanceM(lat, lon, wp.lat, wp.lon);
+
+  // Release a manual hold once they've walked back out of range, so normal
+  // auto-advance behaviour resumes for the next approach.
+  if(holdRouteIndex && d > ROUTE_ADVANCE_RADIUS) holdRouteIndex = false;
+
+  // Approach heads-up: buzz + banner once per stop, slightly before auto-advance.
+  if(d <= ROUTE_APPROACH_RADIUS && approachNotifiedIndex !== routeIndex){
+    approachNotifiedIndex = routeIndex;
+    buzz([180, 90, 180]);
+    showArrival(wp.name, Math.round(d));
+  }
+
+  if(holdRouteIndex) return; // user is deliberately parked on this stop
+
+  if(d <= ROUTE_ADVANCE_RADIUS){
     routeIndex++;
     if(routeIndex >= route.length){
       saveRoute();
+      buzz([250, 120, 250, 120, 250]);
       toast('Route complete — ' + route.length + ' of ' + route.length + ' stops reached');
     } else {
       targetId = route[routeIndex];
+      approachNotifiedIndex = null;
       saveRoute(); saveTarget();
       const next = waypoints.find(w=>w.id===targetId);
       toast('Reached ' + wp.name + ' — next: ' + (next ? next.name : '—'));
@@ -877,6 +940,16 @@ function toast(msg){
   toastTimer = setTimeout(()=> el.classList.remove('show'), 2000);
 }
 
+let arrivalTimer = null;
+function showArrival(name, metres){
+  const el = document.getElementById('arrival');
+  el.innerHTML = `<span class="big">Arriving: ${escapeHtml(name)}</span><span class="sub">${metres} m away</span><span class="dismiss" id="arrivalDismiss">✕</span>`;
+  el.style.display = 'block';
+  document.getElementById('arrivalDismiss').onclick = ()=>{ el.style.display = 'none'; };
+  clearTimeout(arrivalTimer);
+  arrivalTimer = setTimeout(()=>{ el.style.display = 'none'; }, 8000);
+}
+
 // ---------- Geolocation ----------
 function checkVisited(lat, lon){
   let changed = false;
@@ -1082,11 +1155,17 @@ document.getElementById('btnExportCsv').onclick = ()=>{
 
 // ---------- Route builder ----------
 let routeBuilderSeq = []; // ids, in tap order, while the builder modal is open
+let routeBuilderEditing = false;
 
-function openRouteBuilder(){
+function openRouteBuilder(editing){
   if(waypoints.length === 0){ toast('Add some waypoints first'); return; }
-  routeBuilderSeq = [];
-  document.getElementById('chkReturnStart').checked = true;
+  routeBuilderEditing = !!editing && route.length > 0;
+  routeBuilderSeq = routeBuilderEditing ? [...route] : [];
+  // Default off: when planning in the field you've usually already saved the carpark
+  // as its own waypoint and added it as the last stop yourself.
+  document.getElementById('chkReturnStart').checked = false;
+  document.getElementById('routeModalTitle').textContent = routeBuilderEditing ? 'Edit route' : 'Plan a route';
+  document.getElementById('btnStartRoute').textContent = routeBuilderEditing ? 'Save changes' : 'Start route';
   document.getElementById('manageModal').classList.remove('open');
   renderRouteBuilder();
   document.getElementById('routeModal').classList.add('open');
@@ -1147,11 +1226,28 @@ function renderRouteBuilder(){
   });
 }
 
-document.getElementById('btnPlanRoute').onclick = openRouteBuilder;
+document.getElementById('btnPlanRoute').onclick = ()=> openRouteBuilder(false);
 document.getElementById('btnCancelRoute').onclick = ()=> document.getElementById('routeModal').classList.remove('open');
 document.getElementById('btnStartRoute').onclick = ()=>{
   if(routeBuilderSeq.length === 0){ toast('Select at least one stop'); return; }
-  startRoute(routeBuilderSeq, document.getElementById('chkReturnStart').checked);
+  const returnToStart = document.getElementById('chkReturnStart').checked;
+  if(routeBuilderEditing){
+    // Keep progress where possible: stay on the same waypoint you were heading to,
+    // so editing a later stop mid-walk doesn't restart the whole route.
+    const currentTargetId = route[routeIndex];
+    route = returnToStart && routeBuilderSeq[routeBuilderSeq.length-1] !== routeBuilderSeq[0]
+      ? [...routeBuilderSeq, routeBuilderSeq[0]]
+      : [...routeBuilderSeq];
+    const found = route.indexOf(currentTargetId);
+    routeIndex = found >= 0 ? found : Math.min(routeIndex, route.length - 1);
+    targetId = route[routeIndex];
+    approachNotifiedIndex = null;
+    saveRoute(); saveTarget();
+    renderWaypointStrip(); renderHud(); renderTrail(); renderAR();
+    toast('Route updated — ' + route.length + ' stops');
+  } else {
+    startRoute(routeBuilderSeq, returnToStart);
+  }
   document.getElementById('routeModal').classList.remove('open');
 };
 
