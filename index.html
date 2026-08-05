@@ -164,6 +164,12 @@ button:active{ transform: scale(0.97); }
 .wp-list-edit .item .reorder.disabled{ opacity:0.25; pointer-events:none; }
 .wp-list-edit .item .x{ color: var(--bad); font-family:'IBM Plex Mono',monospace; cursor:pointer; padding: 4px 8px; }
 
+.compass-enable{ display:none; position:fixed; left:0; right:0; bottom:0; z-index:70;
+  background: var(--hi-vis); color:#12100E; text-align:center; cursor:pointer;
+  font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:15px;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.5); }
+.compass-enable small{ display:block; font-weight:500; font-size:12px; opacity:0.75; margin-top:3px; }
 .arrival{ position:fixed; top:0; left:0; right:0; z-index:60; background: var(--flag); color:#fff;
   padding: 14px 16px calc(14px + env(safe-area-inset-top)); text-align:center; display:none;
   box-shadow: 0 4px 20px rgba(0,0,0,0.5); animation: arrivePulse 0.9s ease-in-out 3; }
@@ -304,6 +310,7 @@ button:active{ transform: scale(0.97); }
   </div>
 </div>
 
+<div class="compass-enable" id="compassEnable">Tap to enable compass<small>iPhone needs permission for motion &amp; orientation</small></div>
 <div class="arrival" id="arrival"></div>
 <div class="toast" id="toast"></div>
 
@@ -1074,14 +1081,35 @@ function startCompass(){
       window.addEventListener('deviceorientation', handleOrientation, true);
     }
   };
+  // iOS (13+) requires motion/orientation permission to be requested from inside a
+  // user gesture — calling it on page load always fails. So on those devices we show
+  // a tap-to-enable prompt instead and request permission from the tap handler.
   if(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
-    DeviceOrientationEvent.requestPermission().then(state=>{
-      if(state === 'granted') attach();
-      else setHdgPill('bad','HDG denied');
-    }).catch(()=> setHdgPill('bad','HDG error'));
+    showCompassEnablePrompt(attach);
   } else {
     attach();
   }
+}
+
+function showCompassEnablePrompt(attach){
+  const el = document.getElementById('compassEnable');
+  el.style.display = 'block';
+  setHdgPill('warn', 'HDG tap to enable');
+  el.onclick = ()=>{
+    DeviceOrientationEvent.requestPermission().then(state=>{
+      if(state === 'granted'){
+        attach();
+        el.style.display = 'none';
+        setHdgPill('warn', 'HDG …');
+      } else {
+        setHdgPill('bad', 'HDG denied');
+        alert('Compass access was denied, so the direction arrow can\u2019t work.\n\nOn iPhone: Settings \u2192 Apps \u2192 Safari \u2192 Motion & Orientation Access, turn it on, then reload NavEase.');
+      }
+    }).catch(()=>{
+      setHdgPill('bad', 'HDG error');
+      alert('Couldn\u2019t turn on the compass. Make sure Motion & Orientation Access is enabled in Safari settings, then reload.');
+    });
+  };
 }
 
 // ---------- Waypoint management ----------
