@@ -36,7 +36,7 @@ body{ min-height: 100vh; display:flex; flex-direction:column; }
 .mono{ font-family: 'IBM Plex Mono', monospace; }
 
 /* --- Header --- */
-header{ padding: 14px 16px 10px; display:flex; align-items:center; justify-content:space-between;
+header{ padding: calc(14px + env(safe-area-inset-top)) 16px 10px; display:flex; align-items:center; justify-content:space-between;
   border-bottom: 1px solid var(--line); }
 .brand{ display:flex; align-items:center; gap:8px; }
 .brand .dot{ width:10px; height:10px; border-radius:50%; background: var(--hi-vis);
@@ -175,7 +175,7 @@ button:active{ transform: scale(0.97); }
   box-shadow: 0 -4px 20px rgba(0,0,0,0.5); }
 .compass-enable small{ display:block; font-weight:500; font-size:12px; opacity:0.75; margin-top:3px; }
 .arrival{ position:fixed; top:0; left:0; right:0; z-index:60; background: var(--flag); color:#fff;
-  padding: 14px 16px calc(14px + env(safe-area-inset-top)); text-align:center; display:none;
+  padding: calc(14px + env(safe-area-inset-top)) 16px 14px; text-align:center; display:none;
   box-shadow: 0 4px 20px rgba(0,0,0,0.5); animation: arrivePulse 0.9s ease-in-out 3; }
 .arrival .big{ font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:17px; display:block; }
 .arrival .sub{ font-family:'IBM Plex Mono',monospace; font-size:12px; opacity:0.9; }
@@ -1142,8 +1142,25 @@ function tiltCompensatedElevation(alpha, beta, gamma){
 }
 function handleOrientation(event){
   let heading = null;
-  if(typeof event.webkitCompassHeading === 'number'){
+  if(typeof event.webkitCompassHeading === 'number' && event.alpha === null){
+    // Rare case: compass heading available but no alpha at all to correct with.
+    // Falls back to using it directly (same limitation as before — accurate roughly
+    // when held upright, not corrected for roll into landscape).
     heading = event.webkitCompassHeading;
+  } else if(typeof event.webkitCompassHeading === 'number'){
+    // webkitCompassHeading is Apple's magnetically-calibrated compass reading — better
+    // than raw alpha — but it measures which way the TOP EDGE of the phone points, not
+    // which way the CAMERA points. Held upright in portrait those are nearly the same,
+    // which is why this worked fine there. Roll the phone 90° into landscape while still
+    // aiming the camera at the same spot, and the top edge now points sideways even
+    // though the camera hasn't moved — a clean ~90° error appearing exactly on rotation.
+    // Fix: use it only as a better-calibrated substitute for alpha, then still run it
+    // through the same tilt-compensation matrix (with this event's beta/gamma) that
+    // already correctly derives the true camera-facing direction on Android — that
+    // matrix is roll-invariant, which a raw top-edge compass reading is not.
+    // alpha increases counterclockwise, compass heading clockwise, hence the inversion.
+    const calibratedAlpha = (360 - event.webkitCompassHeading) % 360;
+    heading = tiltCompensatedHeading(calibratedAlpha, event.beta, event.gamma);
   } else if(event.alpha !== null){
     // tiltCompensatedHeading already reflects the true physical direction the device
     // (and camera) is facing, independent of portrait/landscape screen rotation —
