@@ -164,6 +164,10 @@ button:active{ transform: scale(0.97); }
 .wp-list-edit .item .reorder.disabled{ opacity:0.25; pointer-events:none; }
 .wp-list-edit .item .x{ color: var(--bad); font-family:'IBM Plex Mono',monospace; cursor:pointer; padding: 4px 8px; }
 
+.install-hint{ display:flex; align-items:center; gap:10px; padding: 9px 14px; background: rgba(200,255,61,0.10);
+  border-bottom:1px solid var(--hi-vis-dim); font-size:12px; color: var(--text); }
+.install-hint span:first-child{ flex:1; }
+.install-hint .close{ flex:0 0 auto; color: var(--text-muted); cursor:pointer; font-size:15px; padding:2px 4px; }
 .compass-enable{ display:none; position:fixed; left:0; right:0; bottom:0; z-index:70;
   background: var(--hi-vis); color:#12100E; text-align:center; cursor:pointer;
   font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:15px;
@@ -209,6 +213,11 @@ button:active{ transform: scale(0.97); }
     <span class="pill mono" id="hdgPill">HDG —</span>
   </div>
 </header>
+
+<div class="install-hint" id="installHint" style="display:none">
+  <span id="installHintText"></span>
+  <span class="close" id="installHintClose">✕</span>
+</div>
 
 <div class="route-banner" id="routeBanner" style="display:none"></div>
 <div class="wp-strip" id="wpStrip"></div>
@@ -441,6 +450,27 @@ function isIOS(){
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS reports as Mac
 }
 
+function isStandalone(){
+  return window.navigator.standalone === true ||
+    (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+}
+
+// The install step (Share -> Add to Home Screen on iOS, ⋮ menu -> Install app on
+// Android) lives in the browser's own UI, entirely outside the page — so it's easy
+// to miss. Point at it directly rather than relying on people finding it themselves.
+function maybeShowInstallHint(){
+  if(isStandalone()) return;
+  if(localStorage.getItem('navease:installHintDismissed') === '1') return;
+  document.getElementById('installHintText').textContent = isIOS()
+    ? 'For the full-screen app: tap the Share icon (\u2b1a with an arrow) at the bottom of Safari, then "Add to Home Screen".'
+    : 'For the full-screen app: tap \u22ee at the top right of Chrome, then "Install app".';
+  document.getElementById('installHint').style.display = 'flex';
+}
+document.getElementById('installHintClose').onclick = ()=>{
+  document.getElementById('installHint').style.display = 'none';
+  localStorage.setItem('navease:installHintDismissed', '1');
+};
+
 function showLocationHelp(){
   const iosSteps = 'iPhone:\n\u2022 Tap the \u201CᴀA\u201D button at the left of the address bar \u2192 Website Settings \u2192 Location \u2192 Allow.\n\u2022 If that\u2019s already Allow, check Settings app \u2192 Privacy & Security \u2192 Location Services \u2192 make sure it\u2019s on, then find Safari (or NavEase, if installed to your home screen) in the list and set it to \u201CWhile Using\u201D.';
   const androidSteps = 'Android:\n\u2022 Tap the lock/info icon in the address bar \u2192 Permissions \u2192 Location \u2192 Allow.\n\u2022 Or: Settings \u2192 Apps \u2192 Chrome \u2192 Permissions \u2192 Location \u2192 Allow.';
@@ -570,6 +600,27 @@ function endRoute(){
 
 function buzz(pattern){
   try{ if(navigator.vibrate) navigator.vibrate(pattern); }catch(e){}
+}
+
+let singleApproachNotifiedId = null; // which waypoint id we've already buzzed for while outside a route
+
+// Called on every GPS fix when there's no active route — same approach heads-up as
+// route mode, just for whatever single waypoint is currently selected. Re-arms once
+// you walk back out of range, so returning to the same spot buzzes again.
+function checkSingleTargetApproach(lat, lon){
+  if(route.length > 0 || !targetId) return; // route mode has its own handling
+  const wp = waypoints.find(w=>w.id===targetId);
+  if(!wp) return;
+  const d = distanceM(lat, lon, wp.lat, wp.lon);
+  if(d > ROUTE_APPROACH_RADIUS){
+    singleApproachNotifiedId = null;
+    return;
+  }
+  if(singleApproachNotifiedId !== targetId){
+    singleApproachNotifiedId = targetId;
+    buzz([180, 90, 180]);
+    showArrival(wp.name, Math.round(d));
+  }
 }
 
 // Called on every GPS fix — buzzes on approach, then auto-advances when close enough.
@@ -819,10 +870,26 @@ function stopAR(){
 // this, the flag stays glued to one spot as you rotate from portrait to landscape,
 // because "bearing offset" kept being mapped to "horizontal" and "tilt offset" to
 // "vertical" even after the video itself had rotated 90°.
-function getScreenAngle(){
-  if(screen.orientation && typeof screen.orientation.angle === 'number') return screen.orientation.angle;
-  if(typeof window.orientation === 'number') return ((window.orientation % 360) + 360) % 360;
-  return 0;
+//
+// This uses screen.orientation.type (a named string: landscape-primary,
+// landscape-secondary, etc.) rather than screen.orientation.angle (a plain number).
+// The numeric angle's sign convention for "90° vs 270°" isn't guaranteed consistent
+// between browsers for the same physical rotation — Chrome and Safari have been
+// observed disagreeing here — whereas the named type is defined precisely by the
+// same spec both implement, so it's the more reliable signal to branch on.
+function getScreenOrientationType(){
+  if(screen.orientation && screen.orientation.type) return screen.orientation.type;
+  // Fallback for older engines without screen.orientation: window.orientation uses
+  // its own (also inconsistent) numeric convention, but this only matters on very
+  // old browsers that lack the Screen Orientation API entirely.
+  if(typeof window.orientation === 'number'){
+    const a = ((window.orientation % 360) + 360) % 360;
+    if(a === 90) return 'landscape-primary';
+    if(a === 270) return 'landscape-secondary';
+    if(a === 180) return 'portrait-secondary';
+    return 'portrait-primary';
+  }
+  return 'portrait-primary';
 }
 
 function renderAR(){
@@ -851,14 +918,12 @@ function renderAR(){
 
   // Map the two camera-relative offsets (bearing, tilt) onto screen (dx, dy)
   // according to current rotation. dx/dy are in the same units as rel/pitchDelta.
-  const angle = ((getScreenAngle() % 360) + 360) % 360;
+  const otype = getScreenOrientationType();
   let dx, dy;
-  switch(angle){
-    case 90:  dx = -pitchDelta; dy = -rel;      break;
-    case 180: dx = -rel;        dy = -pitchDelta; break;
-    case 270: dx = pitchDelta;  dy = rel;       break;
-    default:  dx = rel;         dy = pitchDelta; // 0 / portrait
-  }
+  if(otype === 'landscape-primary'){ dx = -pitchDelta; dy = -rel; }
+  else if(otype === 'landscape-secondary'){ dx = pitchDelta; dy = rel; }
+  else if(otype === 'portrait-secondary'){ dx = -rel; dy = -pitchDelta; }
+  else { dx = rel; dy = pitchDelta; } // portrait-primary
 
   if(Math.abs(rel) <= half){
     flag.style.display = 'flex';
@@ -1007,6 +1072,7 @@ function startGeo(){
     }
     checkVisited(latitude, longitude);
     checkRouteAdvance(latitude, longitude);
+    checkSingleTargetApproach(latitude, longitude);
     renderWaypointStrip();
     renderHud();
     renderTrail();
@@ -1872,6 +1938,7 @@ if('serviceWorker' in navigator){
   renderHud();
   startGeo();
   startCompass();
+  maybeShowInstallHint();
 })();
 </script>
 </body>
