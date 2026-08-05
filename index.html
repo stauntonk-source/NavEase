@@ -428,12 +428,29 @@ function setGpsPill(state, text){
   const el = document.getElementById('gpsPill');
   el.className = 'pill mono ' + state;
   el.textContent = text;
+  el.style.cursor = (state === 'bad') ? 'pointer' : 'default';
 }
 function setHdgPill(state, text){
   const el = document.getElementById('hdgPill');
   el.className = 'pill mono ' + state;
   el.textContent = text;
 }
+
+function isIOS(){
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS reports as Mac
+}
+
+function showLocationHelp(){
+  const iosSteps = 'iPhone:\n\u2022 Tap the \u201CᴀA\u201D button at the left of the address bar \u2192 Website Settings \u2192 Location \u2192 Allow.\n\u2022 If that\u2019s already Allow, check Settings app \u2192 Privacy & Security \u2192 Location Services \u2192 make sure it\u2019s on, then find Safari (or NavEase, if installed to your home screen) in the list and set it to \u201CWhile Using\u201D.';
+  const androidSteps = 'Android:\n\u2022 Tap the lock/info icon in the address bar \u2192 Permissions \u2192 Location \u2192 Allow.\n\u2022 Or: Settings \u2192 Apps \u2192 Chrome \u2192 Permissions \u2192 Location \u2192 Allow.';
+  alert('Location access is turned off for this page, so NavEase can\u2019t get a GPS fix.\n\n' + (isIOS() ? iosSteps : androidSteps) + '\n\nAfter changing it, come back and tap this GPS pill again to retry \u2014 you shouldn\u2019t need to reload the page.');
+  startGeo(); // safe to call again; browsers no-op or re-prompt as appropriate
+}
+
+document.getElementById('gpsPill').addEventListener('click', ()=>{
+  if(document.getElementById('gpsPill').classList.contains('bad')) showLocationHelp();
+});
 
 // ---------- Waypoint strip ----------
 function renderWaypointStrip(){
@@ -448,7 +465,7 @@ function renderWaypointStrip(){
   if(sorted.length === 0){
     const hint = document.createElement('div');
     hint.style.cssText = 'padding:8px 4px; font-size:12px; color:var(--text-muted); display:flex; align-items:center;';
-    hint.textContent = 'No waypoints yet — tap Import or + Add waypoint below.';
+    hint.textContent = 'No waypoints yet — tap Import or + Add waypoint below. The ⋯ on the right manages waypoints and route planning.';
     strip.appendChild(hint);
   }
   sorted.forEach(wp=>{
