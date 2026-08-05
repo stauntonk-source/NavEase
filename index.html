@@ -251,7 +251,7 @@ button:active{ transform: scale(0.97); }
 
 <footer>
   <button class="subtle" id="btnClearTrail">Clear track</button>
-  <button id="btnImport">Import CSV</button>
+  <button id="btnImport">Import</button>
   <button class="primary" id="btnAddHere">+ Add waypoint here</button>
 </footer>
 
@@ -259,8 +259,8 @@ button:active{ transform: scale(0.97); }
 <div class="modal-bg" id="importModal">
   <div class="modal">
     <h2>Import waypoints</h2>
-    <div class="hint">Upload a .csv file, or paste rows below: <span class="mono">name, lat, lon</span> per line — e.g. from an Esri Field Maps export. A header row is fine, it'll be skipped automatically.</div>
-    <input type="file" id="csvFile" accept=".csv,text/csv" style="margin-bottom:10px; width:100%; color:var(--text-muted); font-size:12px;">
+    <div class="hint">Upload a <span class="mono">.csv</span>, <span class="mono">.xlsx</span> or <span class="mono">.xls</span> file, or paste rows below. Columns are found by header name (Site/Name, Latitude/Lat/POINT_Y, Longitude/Lon/POINT_X) in any order — or plain <span class="mono">name, lat, lon</span> per line.</div>
+    <input type="file" id="csvFile" accept=".csv,.xlsx,.xlsm,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="margin-bottom:10px; width:100%; color:var(--text-muted); font-size:12px;">
     <textarea id="csvInput" placeholder="Carpark North, -27.4698, 153.0251&#10;Tree 01, -27.4711, 153.0244&#10;Tree 02, -27.4715, 153.0239"></textarea>
     <div class="row">
       <button class="ghost" id="btnCancelImport">Cancel</button>
@@ -441,7 +441,7 @@ function renderWaypointStrip(){
   if(sorted.length === 0){
     const hint = document.createElement('div');
     hint.style.cssText = 'padding:8px 4px; font-size:12px; color:var(--text-muted); display:flex; align-items:center;';
-    hint.textContent = 'No waypoints yet — tap Import CSV or + Add waypoint below.';
+    hint.textContent = 'No waypoints yet — tap Import or + Add waypoint below.';
     strip.appendChild(hint);
   }
   sorted.forEach(wp=>{
@@ -1299,65 +1299,514 @@ function parseCsvLine(line){
   return result.map(s=>s.trim());
 }
 
+// Header names we recognise for each field, lowercased, in PRIORITY ORDER — the
+// first alias that matches any column wins. Order matters: an ArcGIS export has both
+// "Site" (MG01, MG02…) and "Feature" (MONITORING POINT), and picking the wrong one
+// names every waypoint identically.
+const COL_ALIASES = {
+  name: ['name','site','site id','siteid','site_id','waypoint','label','title','point','id','location','feature'],
+  lat:  ['latitude','lat','lat_dd','latitude_dd','point_y','ycoord','y_coord','y coord','y','northing'],
+  lon:  ['longitude','long','lon','lng','lon_dd','longitude_dd','point_x','xcoord','x_coord','x coord','x','easting']
+};
+
+function matchColumn(headerCells, kind){
+  for(const alias of COL_ALIASES[kind]){
+    const i = headerCells.indexOf(alias);
+    if(i >= 0) return i;
+  }
+  return -1;
+}
+
+// "MG2" should sort before "MG10" — plain string sort gets this wrong.
+function naturalCompare(a, b){
+  return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+}
+
 function doImport(){
  try{
   const raw = document.getElementById('csvInput').value.replace(/^\uFEFF/, '').trim();
   if(!raw){ document.getElementById('importModal').classList.remove('open'); return; }
-  let added = 0;
-  let skippedBadCoords = 0;
+
+  // Handle CRLF (Windows/ArcGIS exports) as well as LF.
+  const lines = raw.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if(lines.length === 0){ toast('That file looks empty'); return; }
+
+  // --- Work out which columns hold what ---
+  const firstCells = parseCsvLine(lines[0]).map(s => s.toLowerCase().trim());
+  let idxName = matchColumn(firstCells, 'name');
+  let idxLat  = matchColumn(firstCells, 'lat');
+  let idxLon  = matchColumn(firstCells, 'lon');
+  let startRow = 0;
+  let usedHeader = false;
+
+  if(idxLat >= 0 && idxLon >= 0){
+    // Recognised a header row — columns can be in any order.
+    usedHeader = true;
+    startRow = 1;
+    if(idxName < 0) idxName = 0;
+  } else {
+    // No usable header: fall back to positional name, lat, lon.
+    idxName = 0; idxLat = 1; idxLon = 2;
+    // If row 0 has non-numeric coords it's an unrecognised header — skip it.
+    const c = parseCsvLine(lines[0]);
+    if(c.length >= 3 && (isNaN(parseFloat(c[1])) || isNaN(parseFloat(c[2])))) startRow = 1;
+  }
+
+  // Nothing coordinate-like anywhere: give a specific, actionable error rather than
+  // silently importing zero rows. This is exactly the ArcGIS "geometry wasn't included
+  // in the export" case.
+  if(!usedHeader){
+    const probe = parseCsvLine(lines[startRow] || '');
+    if(probe.length < 3 || isNaN(parseFloat(probe[idxLat])) || isNaN(parseFloat(probe[idxLon]))){
+      alert("Couldn't find latitude/longitude columns in that file.\n\nIf this came from ArcGIS, the export may not include coordinates — the geometry has to be added as fields first (Calculate Geometry → Point x/y-coordinate, Coordinate System GDA2020, Units Decimal Degrees).\n\nExpected either a header row naming lat/long columns, or plain rows of: name, latitude, longitude");
+      return;
+    }
+  }
+
+  const parsed = [];
+  let skippedBadCoords = 0, skippedNoNumber = 0, suspectSwap = 0;
+
+  for(let i = startRow; i < lines.length; i++){
+    const parts = parseCsvLine(lines[i]);
+    if(parts.length < 2) continue;
+    const name = (parts[idxName] !== undefined && String(parts[idxName]).trim() !== '')
+      ? String(parts[idxName]).trim()
+      : 'WP' + (parsed.length + 1);
+    let lat = parseFloat(parts[idxLat]);
+    let lon = parseFloat(parts[idxLon]);
+    if(isNaN(lat) || isNaN(lon)){ skippedNoNumber++; continue; }
+
+    // A "latitude" beyond ±90 is certainly a longitude — flag the swap rather than
+    // dropping the row, since a whole file with columns the other way round is common.
+    if(Math.abs(lat) > 90 && Math.abs(lon) <= 90){
+      const t = lat; lat = lon; lon = t;
+      suspectSwap++;
+    }
+    if(lat < -90 || lat > 90 || lon < -180 || lon > 180){ skippedBadCoords++; continue; }
+    parsed.push({ name, lat, lon });
+  }
+
+  if(parsed.length === 0){
+    let msg = 'No usable rows found.';
+    if(skippedBadCoords) msg += '\n\n' + skippedBadCoords + ' row(s) had out-of-range coordinates — the columns may be misaligned, or the values may be projected (easting/northing) rather than decimal degrees.';
+    if(skippedNoNumber) msg += '\n\n' + skippedNoNumber + ' row(s) had no numeric coordinates.';
+    alert(msg);
+    return;
+  }
+
+  // Natural sort so MG01…MG20 land in order regardless of the export's own ordering
+  // (ArcGIS exports in OBJECTID order, which is creation order, not site order).
+  parsed.sort((a,b)=> naturalCompare(a.name, b.name));
+
+  // --- Confirmation preview: makes a bad import obvious before it's saved ---
+  let summary = parsed.length + ' waypoint' + (parsed.length===1?'':'s') + ' found';
+  summary += '\n\nFirst: ' + parsed[0].name + '  (' + parsed[0].lat.toFixed(5) + ', ' + parsed[0].lon.toFixed(5) + ')';
+  if(parsed.length > 1){
+    const last = parsed[parsed.length-1];
+    summary += '\nLast:  ' + last.name + '  (' + last.lat.toFixed(5) + ', ' + last.lon.toFixed(5) + ')';
+  }
+  if(currentPos){
+    let near = Infinity, far = 0;
+    parsed.forEach(p=>{
+      const d = distanceM(currentPos.lat, currentPos.lon, p.lat, p.lon);
+      if(d < near) near = d;
+      if(d > far) far = d;
+    });
+    const fmt = m => m >= 1000 ? (m/1000).toFixed(1) + ' km' : Math.round(m) + ' m';
+    summary += '\n\nNearest to you: ' + fmt(near) + '\nFurthest:       ' + fmt(far);
+    if(near > 500000) summary += '\n\n⚠ These are a very long way from your current position — check the coordinates are decimal degrees and not projected.';
+  }
+  if(suspectSwap > 0) summary += '\n\nNote: ' + suspectSwap + ' row(s) had latitude/longitude the other way round — swapped automatically.';
+  if(skippedBadCoords > 0) summary += '\n\n' + skippedBadCoords + ' row(s) skipped (coordinates out of range).';
+  if(skippedNoNumber > 0) summary += '\n' + skippedNoNumber + ' row(s) skipped (no numeric coordinates).';
+  summary += '\n\nImport these?';
+
+  if(!confirm(summary)) return;
+
   let firstNewId = null;
-  raw.split('\n').forEach(line=>{
-    if(!line.trim()) return;
-    const parts = parseCsvLine(line);
-    if(parts.length < 3) return;
-    const [name, latS, lonS] = parts;
-    const lat = parseFloat(latS), lon = parseFloat(lonS);
-    if(isNaN(lat) || isNaN(lon)) return; // skips header rows too
-    // Sanity-check the range — catches misaligned columns (e.g. a notes field
-    // with an embedded comma shifting values) instead of silently importing
-    // a wildly wrong location.
-    if(lat < -90 || lat > 90 || lon < -180 || lon > 180){ skippedBadCoords++; return; }
+  parsed.forEach(p=>{
     const id = 'w' + Date.now() + Math.random().toString(36).slice(2,6);
-    waypoints.push({ id, name, lat, lon });
+    waypoints.push({ id, name: p.name, lat: p.lat, lon: p.lon });
     if(firstNewId === null) firstNewId = id;
-    added++;
   });
+
   saveWaypoints();
   // select the first newly-imported waypoint unless a valid target is already active
   const hasValidTarget = targetId && waypoints.some(w => w.id === targetId);
-  if(added > 0 && !hasValidTarget && firstNewId){
+  if(!hasValidTarget && firstNewId){
     targetId = firstNewId;
     saveTarget();
   }
   renderWaypointStrip();
   renderHud();
+  renderTrail();
   document.getElementById('csvInput').value = '';
   document.getElementById('csvFile').value = '';
   document.getElementById('importModal').classList.remove('open');
-  if(added > 0){
-    let msg = added + ' waypoint' + (added===1?'':'s') + ' imported — tap one above to track it';
-    if(skippedBadCoords > 0) msg += ' (' + skippedBadCoords + ' row' + (skippedBadCoords===1?'':'s') + ' skipped — out-of-range coordinates, check the CSV columns)';
-    toast(msg);
-  } else if(skippedBadCoords > 0){
-    alert(skippedBadCoords + ' row(s) had out-of-range coordinates and were skipped. This usually means the columns are misaligned — check for commas inside an unquoted notes/description field.');
-  } else {
-    toast('No valid rows found — check the format is name, lat, lon');
-  }
+  toast(parsed.length + ' waypoint' + (parsed.length===1?'':'s') + ' imported — tap one above to track it');
  }catch(err){
    alert('Import error: ' + (err && err.message ? err.message : err));
  }
 }
 
+// ---------- legacy .xls reading (BIFF8 inside an OLE2 compound document) ----------
+// The old binary .xls format is not a ZIP, so it needs its own reader. ArcGIS's
+// "direct download" produces this format, hence supporting it here.
+function readOleStreams(arrayBuffer){
+  const dv = new DataView(arrayBuffer);
+  const u8 = new Uint8Array(arrayBuffer);
+  const sig = [0xD0,0xCF,0x11,0xE0,0xA1,0xB1,0x1A,0xE1];
+  for(let i=0;i<8;i++) if(u8[i] !== sig[i]) throw new Error('Not a readable .xls file');
+
+  const secSize = 1 << dv.getUint16(0x1E, true);
+  const miniSize = 1 << dv.getUint16(0x20, true);
+  const nFatSectors = dv.getUint32(0x2C, true);
+  const dirStart = dv.getUint32(0x30, true);
+  const miniCutoff = dv.getUint32(0x38, true);
+  const miniFatStart = dv.getUint32(0x3C, true);
+  const difatStart = dv.getUint32(0x44, true);
+  const secOff = s => 512 + s * secSize;
+
+  const fatSectors = [];
+  for(let i=0;i<109 && fatSectors.length<nFatSectors;i++){
+    const s = dv.getUint32(0x4C + i*4, true);
+    if(s === 0xFFFFFFFF) break;
+    fatSectors.push(s);
+  }
+  let ds = difatStart, guard = 0;
+  while(ds !== 0xFFFFFFFE && ds !== 0xFFFFFFFF && fatSectors.length < nFatSectors && guard++ < 1000){
+    const base = secOff(ds);
+    for(let i=0;i<(secSize/4)-1 && fatSectors.length<nFatSectors;i++){
+      const s = dv.getUint32(base + i*4, true);
+      if(s === 0xFFFFFFFF) break;
+      fatSectors.push(s);
+    }
+    ds = dv.getUint32(base + secSize - 4, true);
+  }
+
+  const fat = [];
+  for(const f of fatSectors){
+    const base = secOff(f);
+    for(let i=0;i<secSize/4;i++) fat.push(dv.getUint32(base + i*4, true));
+  }
+  const chain = start => {
+    const out = []; let s = start, g = 0;
+    while(s !== 0xFFFFFFFE && s !== 0xFFFFFFFF && g++ < 100000){ out.push(s); s = fat[s]; if(s === undefined) break; }
+    return out;
+  };
+
+  const dirSecs = chain(dirStart);
+  const dirBytes = new Uint8Array(dirSecs.length * secSize);
+  dirSecs.forEach((s,i)=> dirBytes.set(u8.subarray(secOff(s), secOff(s)+secSize), i*secSize));
+  const ddv = new DataView(dirBytes.buffer, dirBytes.byteOffset, dirBytes.byteLength);
+  const entries = [];
+  for(let i=0; i+128 <= dirBytes.length; i += 128){
+    const nameLen = ddv.getUint16(i + 0x40, true);
+    if(nameLen === 0) continue;
+    let name = '';
+    for(let j=0;j<nameLen-2;j+=2) name += String.fromCharCode(ddv.getUint16(i + j, true));
+    entries.push({ name, type: ddv.getUint8(i + 0x42), start: ddv.getUint32(i + 0x74, true), size: ddv.getUint32(i + 0x78, true) });
+  }
+
+  const miniFat = [];
+  { let s = miniFatStart, g = 0;
+    while(s !== 0xFFFFFFFE && s !== 0xFFFFFFFF && g++ < 100000){
+      const base = secOff(s);
+      for(let i=0;i<secSize/4;i++) miniFat.push(dv.getUint32(base + i*4, true));
+      s = fat[s]; if(s === undefined) break;
+    } }
+  const root = entries.find(e => e.type === 5);
+  let miniStream = null;
+  if(root && root.size > 0){
+    const secs = chain(root.start);
+    miniStream = new Uint8Array(secs.length * secSize);
+    secs.forEach((s,i)=> miniStream.set(u8.subarray(secOff(s), secOff(s)+secSize), i*secSize));
+  }
+
+  return {
+    entries,
+    read(entry){
+      if(entry.size >= miniCutoff){
+        const secs = chain(entry.start);
+        const out = new Uint8Array(secs.length * secSize);
+        secs.forEach((s,i)=> out.set(u8.subarray(secOff(s), secOff(s)+secSize), i*secSize));
+        return out.subarray(0, entry.size);
+      }
+      const out = new Uint8Array(Math.ceil(entry.size/miniSize)*miniSize);
+      let s = entry.start, i = 0, g = 0;
+      while(s !== 0xFFFFFFFE && s !== 0xFFFFFFFF && g++ < 100000){
+        out.set(miniStream.subarray(s*miniSize, s*miniSize + miniSize), i*miniSize);
+        i++; s = miniFat[s]; if(s === undefined) break;
+      }
+      return out.subarray(0, entry.size);
+    }
+  };
+}
+
+function decodeRK(rk){
+  let v;
+  if(rk & 0x02){ v = (rk|0) >> 2; }
+  else {
+    const b = new ArrayBuffer(8), d = new DataView(b);
+    d.setUint32(0, 0, true);
+    d.setUint32(4, rk & 0xFFFFFFFC, true);
+    v = d.getFloat64(0, true);
+  }
+  return (rk & 0x01) ? v/100 : v;
+}
+
+function xlsToCsvText(arrayBuffer){
+  const ole = readOleStreams(arrayBuffer);
+  const wbEntry = ole.entries.find(e => e.name === 'Workbook' || e.name === 'Book');
+  if(!wbEntry) throw new Error('No workbook found in that .xls file');
+  const bytes = ole.read(wbEntry);
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
+  const recs = [];
+  let p = 0;
+  while(p + 4 <= bytes.length){
+    const type = dv.getUint16(p, true), len = dv.getUint16(p+2, true);
+    recs.push({ type, start: p+4, len });
+    p += 4 + len;
+  }
+
+  // shared string table, which can spill across CONTINUE records
+  const sst = [];
+  const si = recs.findIndex(r => r.type === 0x00FC);
+  if(si >= 0){
+    const parts = [{ start: recs[si].start, len: recs[si].len }];
+    for(let i=si+1; i<recs.length; i++){
+      if(recs[i].type === 0x003C) parts.push({ start: recs[i].start, len: recs[i].len });
+      else break;
+    }
+    let total = 0; const bounds = [];
+    for(const pt of parts){ bounds.push(total); total += pt.len; }
+    const buf = new Uint8Array(total);
+    let o = 0;
+    for(const pt of parts){ buf.set(bytes.subarray(pt.start, pt.start+pt.len), o); o += pt.len; }
+    const bdv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    const boundSet = new Set(bounds);
+    const cstUnique = bdv.getUint32(4, true);
+    let c = 8;
+    for(let n=0; n<cstUnique && c+3 <= buf.length; n++){
+      const cch = bdv.getUint16(c, true); c += 2;
+      let grbit = buf[c]; c += 1;
+      let high = grbit & 0x01;
+      const rich = grbit & 0x08, ext = grbit & 0x04;
+      let cRun = 0, cbExt = 0;
+      if(rich){ cRun = bdv.getUint16(c, true); c += 2; }
+      if(ext){ cbExt = bdv.getUint32(c, true); c += 4; }
+      let s = '', remaining = cch;
+      while(remaining > 0 && c < buf.length){
+        if(boundSet.has(c)){ high = buf[c] & 0x01; c += 1; }
+        if(high){ s += String.fromCharCode(bdv.getUint16(c, true)); c += 2; }
+        else { s += String.fromCharCode(buf[c]); c += 1; }
+        remaining--;
+      }
+      c += cRun*4 + cbExt;
+      sst.push(s);
+    }
+  }
+
+  const sheets = [];
+  for(const r of recs){
+    if(r.type === 0x0085) sheets.push({ pos: dv.getUint32(r.start, true) });
+  }
+
+  const cells = {};
+  let maxRow = -1, maxCol = -1;
+  const setCell = (r,c,v)=>{
+    if(!cells[r]) cells[r] = {};
+    cells[r][c] = v;
+    if(r > maxRow) maxRow = r;
+    if(c > maxCol) maxCol = c;
+  };
+
+  let q = sheets.length ? sheets[0].pos : 0;
+  const startPos = q;
+  while(q + 4 <= bytes.length){
+    const type = dv.getUint16(q, true), len = dv.getUint16(q+2, true), s = q + 4;
+    if(type === 0x000A && q > startPos) break; // end of this worksheet substream
+    if(type === 0x00FD){ setCell(dv.getUint16(s,true), dv.getUint16(s+2,true), sst[dv.getUint32(s+6,true)] ?? ''); }
+    else if(type === 0x0203){ setCell(dv.getUint16(s,true), dv.getUint16(s+2,true), dv.getFloat64(s+6,true)); }
+    else if(type === 0x027E){ setCell(dv.getUint16(s,true), dv.getUint16(s+2,true), decodeRK(dv.getUint32(s+6,true))); }
+    else if(type === 0x00BD){
+      const r = dv.getUint16(s,true), cf = dv.getUint16(s+2,true), n = (len-6)/6;
+      for(let i=0;i<n;i++) setCell(r, cf+i, decodeRK(dv.getUint32(s+4+i*6+2, true)));
+    }
+    else if(type === 0x0204){
+      const r = dv.getUint16(s,true), c = dv.getUint16(s+2,true), cch = dv.getUint16(s+6,true), g = bytes[s+8];
+      let str = '';
+      for(let i=0;i<cch;i++) str += (g & 0x01) ? String.fromCharCode(dv.getUint16(s+9+i*2,true)) : String.fromCharCode(bytes[s+9+i]);
+      setCell(r, c, str);
+    }
+    else if(type === 0x0006){
+      if(dv.getUint16(s+12, true) !== 0xFFFF) setCell(dv.getUint16(s,true), dv.getUint16(s+2,true), dv.getFloat64(s+6,true));
+    }
+    q += 4 + len;
+  }
+
+  const out = [];
+  for(let r=0; r<=maxRow; r++){
+    const arr = [];
+    for(let c=0; c<=maxCol; c++) arr.push(cells[r] && cells[r][c] !== undefined ? cells[r][c] : '');
+    out.push(arr.map(csvEscape).join(','));
+  }
+  return out.join('\n');
+}
+
+// ---------- .xlsx reading, using only browser-native APIs ----------
+// An .xlsx is a ZIP of XML files, so DecompressionStream + DOMParser is enough —
+// no third-party spreadsheet library, keeping the app a single dependency-free file.
+async function inflateRawBytes(bytes){
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function unzipEntries(arrayBuffer){
+  const dv = new DataView(arrayBuffer);
+  const bytes = new Uint8Array(arrayBuffer);
+  const u16 = o => dv.getUint16(o, true);
+  const u32 = o => dv.getUint32(o, true);
+  let eocd = -1;
+  for(let i = bytes.length - 22; i >= 0 && i > bytes.length - 66000; i--){
+    if(u32(i) === 0x06054b50){ eocd = i; break; }
+  }
+  if(eocd < 0) throw new Error('That file isn\u2019t a readable .xlsx');
+  const count = u16(eocd + 10);
+  let ptr = u32(eocd + 16);
+  const files = {};
+  const dec = new TextDecoder();
+  for(let n = 0; n < count; n++){
+    if(u32(ptr) !== 0x02014b50) break;
+    const method = u16(ptr + 10);
+    const compSize = u32(ptr + 20);
+    const nameLen = u16(ptr + 28);
+    const extraLen = u16(ptr + 30);
+    const cmtLen = u16(ptr + 32);
+    const localOff = u32(ptr + 42);
+    const name = dec.decode(bytes.subarray(ptr + 46, ptr + 46 + nameLen));
+    const dataStart = localOff + 30 + u16(localOff + 26) + u16(localOff + 28);
+    files[name] = { method, data: bytes.subarray(dataStart, dataStart + compSize) };
+    ptr += 46 + nameLen + extraLen + cmtLen;
+  }
+  return {
+    names: () => Object.keys(files),
+    async text(name){
+      const f = files[name];
+      if(!f) return null;
+      const raw = f.method === 0 ? f.data : await inflateRawBytes(f.data);
+      return new TextDecoder().decode(raw);
+    }
+  };
+}
+
+function colRefToIndex(ref){
+  const m = /^([A-Z]+)/.exec(ref || '');
+  if(!m) return 0;
+  let n = 0;
+  for(const ch of m[1]) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n - 1;
+}
+
+function csvEscape(v){
+  const s = String(v == null ? '' : v);
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+// Returns the sheet contents as CSV text, so it can go through exactly the same
+// import path (header detection, validation, preview) as a real CSV file.
+async function xlsxToCsvText(arrayBuffer){
+  const zip = await unzipEntries(arrayBuffer);
+  const sheetName = zip.names()
+    .filter(n => /^xl\/worksheets\/sheet\d*\.xml$/i.test(n))
+    .sort()[0];
+  if(!sheetName) throw new Error('No worksheet found in that file');
+
+  const parser = new DOMParser();
+  // Shared strings table (may be absent if the file uses inline strings)
+  const shared = [];
+  const ssXml = await zip.text('xl/sharedStrings.xml');
+  if(ssXml){
+    const ssDoc = parser.parseFromString(ssXml, 'application/xml');
+    ssDoc.querySelectorAll('si').forEach(si=>{
+      let s = '';
+      si.querySelectorAll('t').forEach(t => s += t.textContent);
+      shared.push(s);
+    });
+  }
+
+  const doc = parser.parseFromString(await zip.text(sheetName), 'application/xml');
+  const rows = [];
+  doc.querySelectorAll('row').forEach(row=>{
+    const cells = [];
+    row.querySelectorAll('c').forEach(c=>{
+      const ci = colRefToIndex(c.getAttribute('r'));
+      const type = c.getAttribute('t') || 'n';
+      let val = '';
+      if(type === 's'){
+        const v = c.querySelector('v');
+        val = v ? (shared[parseInt(v.textContent, 10)] || '') : '';
+      } else if(type === 'inlineStr'){
+        c.querySelectorAll('t').forEach(t => val += t.textContent);
+      } else {
+        const v = c.querySelector('v');
+        val = v ? v.textContent : '';
+      }
+      while(cells.length < ci) cells.push('');
+      cells[ci] = val;
+    });
+    rows.push(cells);
+  });
+
+  return rows.map(r => r.map(csvEscape).join(',')).join('\n');
+}
+
 document.getElementById('csvFile').onchange = (e)=>{
   const file = e.target.files[0];
   if(!file) return;
+  const isXlsx = /\.(xlsx|xlsm)$/i.test(file.name);
+  const isXls  = /\.xls$/i.test(file.name);
   const reader = new FileReader();
-  reader.onload = ()=> {
-    document.getElementById('csvInput').value = reader.result;
-    doImport(); // import immediately, no second tap needed
-  };
   reader.onerror = ()=> toast('Could not read that file');
-  reader.readAsText(file);
+
+  if(isXlsx || isXls){
+    if(isXlsx && typeof DecompressionStream === 'undefined'){
+      alert('This browser can\u2019t open .xlsx files directly. Save the sheet as CSV and import that instead.');
+      return;
+    }
+    reader.onload = async ()=>{
+      try{
+        // .xls and .xlsx are completely different formats despite the similar name:
+        // .xlsx is a zip of XML, .xls is a binary OLE2 compound document.
+        let csv;
+        if(isXlsx){
+          csv = await xlsxToCsvText(reader.result);
+        } else {
+          // Some tools emit .xlsx or CSV with an .xls extension — sniff the real format.
+          const head = new Uint8Array(reader.result, 0, 8);
+          if(head[0] === 0x50 && head[1] === 0x4B){
+            csv = await xlsxToCsvText(reader.result); // actually a zip/xlsx
+          } else if(head[0] === 0xD0 && head[1] === 0xCF){
+            csv = xlsToCsvText(reader.result);        // genuine legacy .xls
+          } else {
+            csv = new TextDecoder().decode(new Uint8Array(reader.result)); // plain text/CSV
+          }
+        }
+        document.getElementById('csvInput').value = csv;
+        doImport();
+      }catch(err){
+        alert('Could not read that spreadsheet: ' + (err && err.message ? err.message : err) + '\n\nSaving it as CSV and importing that will also work.');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  } else {
+    reader.onload = ()=>{
+      document.getElementById('csvInput').value = reader.result;
+      doImport(); // import immediately, no second tap needed
+    };
+    reader.readAsText(file);
+  }
 };
 document.getElementById('btnDoImport').onclick = doImport;
 
